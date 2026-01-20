@@ -80,7 +80,7 @@ let lastPlayersMarkup = "";
 let lastLobbyPlayersMarkup = "";
 
 const defaultServerUrl =
-  localStorage.getItem("odin_server_url") ?? "http://localhost:3000";
+  import.meta.env.VITE_SERVER_URL ?? "http://localhost:3000";
 let currentServerUrl = defaultServerUrl;
 
 app.innerHTML = `
@@ -100,10 +100,6 @@ app.innerHTML = `
     <section class="panel" id="lobby">
       <h2>Connexion</h2>
       <div class="field-grid">
-        <label class="field">
-          <span>Serveur</span>
-          <input id="server-url" type="text" value="${defaultServerUrl}" />
-        </label>
         <label class="field">
           <span>Pseudo</span>
           <input id="player-name" type="text" placeholder="Votre nom" />
@@ -236,7 +232,6 @@ const roundCloseButton =
   document.querySelector<HTMLButtonElement>("#round-close");
 const tableZoneEl = document.querySelector<HTMLDivElement>("#table-zone");
 
-const serverUrlInput = document.querySelector<HTMLInputElement>("#server-url");
 const playerNameInput =
   document.querySelector<HTMLInputElement>("#player-name");
 const roomCodeInput = document.querySelector<HTMLInputElement>("#room-code");
@@ -680,21 +675,18 @@ function renderCard(card: Card, selected: boolean, isTable: boolean) {
 function attachListeners() {
   createRoomButton?.addEventListener("click", () => {
     const name = playerNameInput?.value?.trim() ?? "";
-    const url = serverUrlInput?.value?.trim() ?? defaultServerUrl;
     if (!name) {
       showToast("Entrez un pseudo.");
       return;
     }
-    if (!socket || url !== currentServerUrl) {
-      connectToServer(url);
+    if (!socket || defaultServerUrl !== currentServerUrl) {
+      connectToServer(defaultServerUrl);
     }
-    localStorage.setItem("odin_server_url", url);
     socket?.emit("createRoom", { name });
   });
 
   joinRoomButton?.addEventListener("click", () => {
     const name = playerNameInput?.value?.trim() ?? "";
-    const url = serverUrlInput?.value?.trim() ?? defaultServerUrl;
     const roomCode = roomCodeInput?.value?.trim().toUpperCase() ?? "";
     if (!name) {
       showToast("Entrez un pseudo.");
@@ -704,10 +696,9 @@ function attachListeners() {
       showToast("Entrez un code salle.");
       return;
     }
-    if (!socket || url !== currentServerUrl) {
-      connectToServer(url);
+    if (!socket || defaultServerUrl !== currentServerUrl) {
+      connectToServer(defaultServerUrl);
     }
-    localStorage.setItem("odin_server_url", url);
     socket?.emit("joinRoom", { roomId: roomCode, name });
   });
 
