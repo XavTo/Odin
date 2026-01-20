@@ -209,10 +209,7 @@ const playersGameEl = document.querySelector<HTMLDivElement>("#players-game");
 const roomIdEl = document.querySelector<HTMLSpanElement>("#room-id");
 const tableCardsEl = document.querySelector<HTMLDivElement>("#table-cards");
 const handCardsEl = document.querySelector<HTMLDivElement>("#hand-cards");
-const turnIndicatorEl =
-  document.querySelector<HTMLParagraphElement>("#turn-indicator");
 const turnTitleEl = document.querySelector<HTMLHeadingElement>("#turn-title");
-const tableMetaEl = document.querySelector<HTMLDivElement>("#table-meta");
 const takeHintEl = document.querySelector<HTMLParagraphElement>("#take-hint");
 const roundInfoEl = document.querySelector<HTMLDivElement>("#round-info");
 const handInfoEl = document.querySelector<HTMLParagraphElement>("#hand-info");
