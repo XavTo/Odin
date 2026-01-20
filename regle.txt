@@ -1,0 +1,44 @@
+Un jeu de défausse simple, malin et rythmé.
+Dans Odin, le but du jeu est simple : être le premier à se débarrasser de toutes ses cartes et finir la partie avec le moins de points possible. Pour y arriver, il faudra jouer plus fort et plus malin que les autres en posant des combinaisons stratégiques — soit avec des cartes de la même couleur, soit avec des chiffres identiques de couleurs différentes.
+
+Le tour de jeu, comment ça marche ?
+À chaque tour, un joueur commence en posant une carte au centre de la table, face visible. Ensuite, chacun joue à son tour, dans le sens des aiguilles d’une montre. Deux choix possibles :
+
+Jouer une ou plusieurs cartes,
+Passer et attendre le prochain tour pour rejouer.
+Un tour se termine quand tout le monde a passé.
+
+Comment poser ses cartes ?
+La carte (ou la combinaison) que vous jouez doit être plus forte que celle posée précédemment.
+Vous pouvez poser le même nombre de cartes ou une de plus (ex : sur 2 cartes, vous pouvez en poser 2 ou 3).
+Les cartes jouées ensemble doivent être de la même couleur ou de la même valeur.
+Leur valeur se calcule en collant les chiffres pour former le plus grand nombre possible.
+
+Exemple :
+
+Vous posez un 2 et un 8 rouges → valeur 82
+Vous posez un 3, 4 et 9 bleus → valeur 943
+
+Et après avoir joué ?
+Vous devez récupérer une carte du centre (si une seule, prenez-la ; s’il y en a plusieurs, choisissez). Les autres sont défaussées.
+
+Passer son tour
+Vous ne jouez pas et laissez la main. Bonne nouvelle : vous pouvez toujours rejouer plus tard.
+
+Quand tout le monde passe sauf une personne, le tour s’arrête. Les cartes du centre sont défaussées et cette personne relance un nouveau tour.
+
+Fin de la manche
+Une manche se termine :
+
+Si un joueur vide sa main en posant toutes ses cartes d’un coup.
+Ou s’il commence un nouveau tour avec toutes ses cartes de même couleur ou même valeur.
+Les autres comptent 1 point par carte restante en main. Ensuite, on redistribue 9 cartes à chacun.
+
+Vous cherchez donc un jeu simple, rapide et facile à expliquer ? Odin pourrait bien devenir votre nouveau compagnon de jeu.
+Ses règles s’apprennent en quelques minutes, son format est ultra-compact, et il se glisse facilement dans un sac – parfait pour l’emporter partout, même en vacances.
+
+Son univers inspiré des Vikings ajoute une touche immersive et originale. Sans révolutionner le genre, Odin fait exactement ce qu’on attend d’un bon jeu de défausse : il est malin, efficace et surtout, il garanti de bons moments sans prise de tête.
+
+C’est un excellent choix pour les joueurs occasionnels ou ceux qui aiment les parties courtes mais dynamiques. Et si vous cherchez un cadeau sympa sans trop vous casser la tête, c’est aussi une valeur sûre – même si vous ne connaissez pas bien les goûts de la personne à qui vous l’offrez.
+
+Personnellement, je l’ai vite adopté : c’est devenu mon jeu préféré du moment. Simple, rapide, sans préparation… Il s’intègre parfaitement dans les petits temps libres du quotidien.
