@@ -1,12 +1,12 @@
 # Odin (jeu en ligne)
 
-Jeu de defausse en temps reel (2 a 6 joueurs) base sur les regles de `regle.txt`.
+Jeu de défausse en temps réel (2 à 6 joueurs) basé sur les [règles détaillées](./regle.txt).
 
-## Prerequis
+## Prérequis
 - Node.js 18+
 - npm
 
-## Demarrage rapide
+## Démarrage rapide
 
 ### Serveur (NestJS + Socket.IO)
 ```bash
@@ -24,10 +24,10 @@ npm run dev
 
 Ouvrir `http://localhost:5173` et se connecter au serveur `http://localhost:3000`.
 
-## Regles implementees (resume)
-- 54 cartes (1 a 9, 6 couleurs), 9 cartes par joueur.
-- Debut d un tour: le joueur pose 1 carte.
-- Ensuite: jouer le meme nombre de cartes ou +1, et plus fort que la combinaison precedente.
+## Règles implémentées (résumé)
+- 54 cartes (1 à 9, 6 couleurs), 9 cartes par joueur.
+- Début d’un tour : le joueur pose 1 carte.
+- Ensuite : jouer le même nombre de cartes ou +1, et plus fort que la combinaison précédente.
 - Combinaison valide: meme couleur ou meme valeur.
 - Valeur: chiffres tries par ordre decroissant (ex: 2 et 8 -> 82).
 - Apres avoir joue: recuperer 1 carte de la table precedente.
