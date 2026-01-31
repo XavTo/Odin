@@ -1,6 +1,6 @@
 # Odin (jeu en ligne)
 
-Jeu de defausse en temps reel (2 a 6 joueurs) base sur les regles de `regle.txt`.
+Jeu de défausse en temps réel (2 à 6 joueurs) basé sur les règles de `regle.txt`.
 
 ## Prerequis
 - Node.js 18+
