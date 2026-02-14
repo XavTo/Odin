@@ -449,13 +449,23 @@ function sortedHand(hand: Card[]): Card[] {
   });
 }
 
+function isMonoHand(hand: Card[]): boolean {
+  if (hand.length === 0) return false;
+  const first = hand[0];
+  const sameColor = hand.every((card) => card.color === first.color);
+  const sameValue = hand.every((card) => card.value === first.value);
+  return sameColor || sameValue;
+}
+
 function toggleCardSelection(cardId: string) {
   if (!gameState) return;
   const alreadySelected = selectedCardIds.has(cardId);
   if (alreadySelected) {
     selectedCardIds.delete(cardId);
   } else {
-    if (gameState.leaderRequired) {
+    const allowMultiLead =
+      gameState.leaderRequired && isMonoHand(gameState.hand);
+    if (gameState.leaderRequired && !allowMultiLead) {
       selectedCardIds = new Set([cardId]);
     } else {
       selectedCardIds.add(cardId);
@@ -603,7 +613,9 @@ function renderGame() {
 
   if (handInfoEl) {
     const ruleHint = gameState.leaderRequired
-      ? "Jouez 1 carte."
+      ? isMonoHand(gameState.hand)
+        ? "Jouez 1 carte, ou toute votre main si possible."
+        : "Jouez 1 carte."
       : gameState.lastPlay
         ? `Jouez ${gameState.lastPlay.count} ou ${gameState.lastPlay.count + 1} cartes.`
         : "";
@@ -615,7 +627,9 @@ function renderGame() {
       gameState.phase === "game_end"
         ? `Gagnant(s): ${gameState.winners?.map((w) => w.name).join(", ") ?? ""}`
         : gameState.leaderRequired
-          ? "La première personne doit jouer 1 carte."
+          ? isMonoHand(gameState.hand)
+            ? "La première personne doit jouer 1 carte (ou toute sa main si possible)."
+            : "La première personne doit jouer 1 carte."
           : gameState.lastPlay
             ? `Dernière combinaison: ${getDisplayName(gameState.lastPlay.playerId)} (${gameState.lastPlay.value})`
             : "";
@@ -630,6 +644,7 @@ function renderGame() {
       <h3>Règles express</h3>
       <p class="subtitle">Plus fort que la combinaison précédente. Même couleur ou même valeur. Même nombre de cartes ou +1.</p>
       <p class="subtitle">Après avoir joué, récupérer 1 carte de la table précédente.</p>
+      <p class="subtitle">En début de tour, vous pouvez poser toute votre main si vous pouvez.</p>
     `;
   }
 
@@ -727,6 +742,24 @@ function attachListeners() {
   playButton?.addEventListener("click", () => {
     if (!socket || !roomId || !gameState) return;
     const cardIds = [...selectedCardIds];
+    if (
+      gameState.leaderRequired &&
+      cardIds.length > 1 &&
+      cardIds.length !== gameState.hand.length
+    ) {
+      showToast(
+        "En début de tour, vous pouvez jouer plusieurs cartes uniquement si vous posez toute votre main.",
+      );
+      return;
+    }
+    if (
+      gameState.leaderRequired &&
+      cardIds.length === gameState.hand.length &&
+      !isMonoHand(gameState.hand)
+    ) {
+      showToast("Toute la main doit être de la même couleur ou valeur.");
+      return;
+    }
     if (gameState.table.length > 1 && !gameState.leaderRequired) {
       if (!selectedTakeCardId) {
         showToast("Sélectionnez une carte à récupérer.");
