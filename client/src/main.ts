@@ -192,7 +192,7 @@ app.innerHTML = `
     <div class="toast" id="toast"></div>
     <div class="round-overlay" id="round-overlay">
       <div class="round-card">
-        <p class="eyebrow">Fin de manche</p>
+        <p class="eyebrow">Je t'aime</p>
         <h2 id="round-title"></h2>
         <p class="subtitle" id="round-points"></p>
         <button id="round-close">Continuer</button>
