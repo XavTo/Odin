@@ -589,8 +589,9 @@ function renderGame() {
         : `Tour de ${currentName || "..."}`;
   }
 
-  tableCardsEl.innerHTML = gameState.table.length
-    ? gameState.table
+  const sortedTable = sortedHand(gameState.table);
+  tableCardsEl.innerHTML = sortedTable.length
+    ? sortedTable
         .map((card) => renderCard(card, selectedTakeCardId === card.id, true))
         .join("")
     : '<p class="empty">Aucune carte sur la table.</p>';
