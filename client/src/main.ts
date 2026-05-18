@@ -90,7 +90,7 @@ app.innerHTML = `
       <div class="hero-content">
         <p class="eyebrow">6 mois ensemble</p>
         <h1>Odin</h1>
-        <p class="subtitle">Je t'aime mon cœur, joyeux 6 mois</p>
+        <p class="subtitle">Je t'aime mon cœur, joyeux 6 mois (et 2 jours)</p>
       </div>
       <img src="/peru-anniversary-ornament.png" class="hero-logo hero-logo--right" alt="Ornement peruvien">
     </header>
