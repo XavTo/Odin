@@ -1,18 +1,18 @@
 @import url("https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Work+Sans:wght@400;500;600&display=swap");
 
 :root {
-  --bg-deep: #0c1b22;
-  --bg-mid: #122b36;
-  --bg-light: #1a3a45;
-  --surface: rgba(255, 255, 255, 0.08);
-  --surface-strong: rgba(255, 255, 255, 0.14);
-  --text-main: #f6f4ef;
-  --text-muted: #c9d6da;
-  --accent-gold: #f5c05b;
-  --accent-ice: #7dd3de;
-  --accent-ember: #f08d5d;
+  --bg-deep: #130f0a;
+  --bg-mid: #342015;
+  --bg-light: #4d2f1d;
+  --surface: rgba(36, 20, 12, 0.66);
+  --surface-strong: rgba(255, 238, 200, 0.16);
+  --text-main: #fff8ec;
+  --text-muted: #ead7bd;
+  --accent-gold: #f7c45d;
+  --accent-ice: #89d5c2;
+  --accent-ember: #d94a32;
   --border-soft: rgba(255, 255, 255, 0.15);
-  --shadow-soft: 0 18px 40px rgba(4, 13, 18, 0.35);
+  --shadow-soft: 0 18px 40px rgba(11, 7, 4, 0.42);
   --card-width: 118px;
   --card-height: 168px;
 }
@@ -30,12 +30,12 @@ body {
   background:
     radial-gradient(
       circle at top left,
-      rgba(125, 211, 222, 0.18),
+      rgba(137, 213, 194, 0.18),
       transparent 40%
     ),
     radial-gradient(
       circle at 25% 60%,
-      rgba(245, 192, 91, 0.14),
+      rgba(247, 196, 93, 0.16),
       transparent 35%
     ),
     linear-gradient(135deg, var(--bg-deep), var(--bg-mid), var(--bg-light));
@@ -44,12 +44,20 @@ body {
 body::before {
   content: "";
   position: fixed;
-  inset: 0;
-  background-image: url("/background.png");
+  inset: -4vw;
+  background-image:
+    linear-gradient(
+      180deg,
+      rgba(197, 93, 31, 0.28),
+      rgba(73, 35, 16, 0.58) 48%,
+      rgba(19, 15, 10, 0.82)
+    ),
+    url("/peru-anniversary-bg.png");
   background-size: cover;
-  background-position: center;
+  background-position: center 42%;
   background-repeat: no-repeat;
-  opacity: 0.5;
+  opacity: 0.92;
+  filter: sepia(0.24) saturate(1.18) hue-rotate(-8deg) brightness(0.9);
   z-index: -1;
 }
 
@@ -73,11 +81,30 @@ body::before {
   gap: 24px;
   align-items: center;
   padding: 24px 28px;
-  border-radius: 20px;
-  background: var(--surface);
-  border: 1px solid var(--border-soft);
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(52, 32, 21, 0.78), rgba(91, 45, 27, 0.56)),
+    linear-gradient(90deg, rgba(217, 74, 50, 0.16), rgba(247, 196, 93, 0.12));
+  border: 1px solid rgba(247, 196, 93, 0.28);
   box-shadow: var(--shadow-soft);
   animation: fadeUp 0.6s ease forwards;
+  overflow: hidden;
+  position: relative;
+}
+
+.hero::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  height: 5px;
+  background: repeating-linear-gradient(
+    90deg,
+    #d94a32 0 26px,
+    #f7c45d 26px 52px,
+    #213f38 52px 78px,
+    #fff0d2 78px 104px
+  );
+  opacity: 0.9;
 }
 
 .hero h1 {
@@ -89,9 +116,9 @@ body::before {
 
 .eyebrow {
   text-transform: uppercase;
-  letter-spacing: 0.3em;
-  font-size: 1.5rem;
-  color: var(--accent-ice);
+  letter-spacing: 0.22em;
+  font-size: 1.05rem;
+  color: var(--accent-gold);
   margin: 0;
 }
 
@@ -188,7 +215,7 @@ select {
   padding: 12px 14px;
   border-radius: 12px;
   border: 1px solid transparent;
-  background: rgba(12, 27, 34, 0.6);
+  background: rgba(19, 15, 10, 0.64);
   color: var(--text-main);
   outline: none;
   font-size: 0.95rem;
@@ -211,7 +238,7 @@ button {
   border-radius: 999px;
   border: none;
   background: var(--accent-gold);
-  color: #1b1d1d;
+  color: #24140c;
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -537,7 +564,7 @@ button.link {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(7, 12, 16, 0.7);
+  background: rgba(10, 7, 4, 0.74);
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.25s ease;
@@ -552,8 +579,13 @@ button.link {
 .round-card {
   padding: 28px 32px;
   border-radius: 20px;
-  background: rgba(12, 27, 34, 0.95);
-  border: 1px solid var(--border-soft);
+  background:
+    linear-gradient(145deg, rgba(52, 32, 21, 0.97), rgba(20, 15, 10, 0.97)),
+    url("/peru-anniversary-ornament.png");
+  background-size: cover, 260px auto;
+  background-position: center, center 12px;
+  background-repeat: no-repeat;
+  border: 1px solid rgba(247, 196, 93, 0.28);
   text-align: center;
   min-width: 280px;
   box-shadow: 0 20px 40px rgba(5, 10, 12, 0.45);
@@ -579,11 +611,19 @@ button.link {
 }
 
 .hero-logo {
-  width: 100px;
-  height: 100px;
+  width: min(23vw, 190px);
+  height: 96px;
   display: block;
   margin: 0;
   flex: 0 0 auto;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 16px rgba(5, 3, 2, 0.35));
+  position: relative;
+  z-index: 1;
+}
+
+.hero-logo--right {
+  transform: scaleX(-1);
 }
 
 .hero-content {
@@ -594,6 +634,8 @@ button.link {
   align-items: center; /* centre le texte */
   text-align: center;
   min-width: 0;
+  position: relative;
+  z-index: 1;
 }
 
 @keyframes fadeUp {

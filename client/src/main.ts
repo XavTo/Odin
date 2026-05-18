@@ -86,12 +86,13 @@ let currentServerUrl = defaultServerUrl;
 app.innerHTML = `
   <div class="app-shell">
     <header class="hero">
-      <img src="/fleurs.png" class="hero-logo" alt="Fleurs">
+      <img src="/peru-anniversary-ornament.png" class="hero-logo" alt="Ornement peruvien">
       <div class="hero-content">
-        <p class="eyebrow">Noémie = gros caca</p>
+        <p class="eyebrow">6 mois ensemble</p>
         <h1>Odin</h1>
+        <p class="subtitle">Je t'aime mon cœur, joyeux 6 mois</p>
       </div>
-      <img src="/fleurs.png" class="hero-logo hero-logo--right" alt="Logo droite">
+      <img src="/peru-anniversary-ornament.png" class="hero-logo hero-logo--right" alt="Ornement peruvien">
     </header>
 
     <section class="status" id="status"></section>
@@ -192,7 +193,7 @@ app.innerHTML = `
     <div class="toast" id="toast"></div>
     <div class="round-overlay" id="round-overlay">
       <div class="round-card">
-        <p class="eyebrow">Je t'aime</p>
+        <p class="eyebrow">6 mois de nous</p>
         <h2 id="round-title"></h2>
         <p class="subtitle" id="round-points"></p>
         <button id="round-close">Continuer</button>
