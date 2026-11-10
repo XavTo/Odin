@@ -1289,3 +1289,17 @@ dialog p {
 .hero h1 {
   font-size: clamp(1.8rem, 4vw, 3rem);
 }
+
+#connection[hidden] {
+  display: none;
+}
+#selection-hint:empty {
+  display: none;
+}
+.table-note:empty,
+.turn-clock[hidden] {
+  display: none;
+}
+#content {
+  padding-top: 24px;
+}
