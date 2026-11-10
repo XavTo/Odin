@@ -1,4 +1,4 @@
-# À toi de jouer — Odin & Rummikub
+# Odin & Rummikub
 
 Jeux multijoueurs privés en français, avec photos personnalisables et classements Elo séparés. Client Vite/TypeScript et serveur NestJS/Socket.IO.
 
@@ -23,6 +23,16 @@ npm run dev
 Ouvrir http://localhost:5173. Le client utilise `VITE_SERVER_URL` (http://localhost:3000 en développement ; origine courante sinon). Copier `client/.env.example` en `.env` pour le configurer.
 
 Choisir le jeu, entrer son pseudo, créer une salle puis copier l’invitation. Le partenaire peut rejoindre depuis le lien ou le code. Deux navigateurs/profils distincts sont nécessaires pour simuler deux personnes : ouvrir deux onglets du même profil transfère la session au dernier onglet.
+
+## Mot de passe du site
+
+Sur Railway, définir **`SITE_PASSWORD` sur `Odin-Server`** puis redéployer le serveur. Le navigateur demande ce mot de passe avant d’afficher les jeux. L’accès est vérifié côté serveur avant toute connexion Socket.IO ; le mot de passe ne figure jamais dans le code client. Ne pas créer de variable `VITE_SITE_PASSWORD`.
+
+Après connexion, seul un jeton d’accès signé est conservé dans ce navigateur pendant 30 jours. Un refresh ou un redémarrage ne redemande pas le mot de passe. Modifier `SITE_PASSWORD` invalide les accès précédents et demande une nouvelle connexion. La clé de signature est enregistrée dans le volume persistant (`/data/access-secret`). Le mot de passe n’est jamais écrit dans les sauvegardes.
+
+Sans variable `SITE_PASSWORD`, l’accès reste ouvert pour le développement local. Le mot de passe protège les parties, les photos de salle et les classements ; les ressources statiques du client (dont les images d’origine déjà publiques) restent servies par le service web.
+
+Les codes de salle comportent exactement **quatre chiffres**, zéros initiaux compris (ex. `0042`). Le mot de passe est commun au site ; le pseudo et la session de jeu restent individuels.
 
 ## Connexion et sauvegarde
 

@@ -9,12 +9,19 @@ import { io } from '../../client/node_modules/socket.io-client/build/esm/index.j
 const root = fileURLToPath(new URL('..', import.meta.url));
 const directory = mkdtempSync(join(tmpdir(), 'odin-wire-'));
 const port = 3317;
+const sitePassword = 'integration-test-password';
+let accessToken;
 let server;
 const clients = [];
 async function start() {
   server = spawn(process.execPath, ['dist/main.js'], {
     cwd: root,
-    env: { ...process.env, PORT: String(port), DATA_DIR: directory },
+    env: {
+      ...process.env,
+      PORT: String(port),
+      DATA_DIR: directory,
+      SITE_PASSWORD: sitePassword,
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   await new Promise((resolve, reject) => {
@@ -55,7 +62,7 @@ async function stop() {
 async function connect(token) {
   const c = {
     socket: io(`http://127.0.0.1:${port}`, {
-      auth: { token },
+      auth: { token, accessToken },
       reconnection: false,
     }),
     state: null,
@@ -75,16 +82,46 @@ async function connect(token) {
   return c;
 }
 async function cmd(c, event, payload = {}) {
-  return c.socket
-    .timeout(5000)
-    .emitWithAck(event, {
-      roomId: c.state?.roomId,
-      revision: c.state?.revision,
-      ...payload,
-    });
+  return c.socket.timeout(5000).emitWithAck(event, {
+    roomId: c.state?.roomId,
+    revision: c.state?.revision,
+    ...payload,
+  });
 }
 try {
   await start();
+  const status = await (await fetch(`http://127.0.0.1:${port}/auth`)).json();
+  assert.equal(status.required, true);
+  assert.equal(status.authorized, false);
+  assert.equal(
+    (
+      await fetch(`http://127.0.0.1:${port}/auth`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: 'wrong' }),
+      })
+    ).status,
+    401,
+  );
+  const rejected = io(`http://127.0.0.1:${port}`, { reconnection: false });
+  const authError = await new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('Missing authentication refusal')),
+      5000,
+    );
+    rejected.once('connect_error', (e) => {
+      clearTimeout(timer);
+      resolve(e.message);
+    });
+  });
+  rejected.disconnect();
+  assert.equal(authError, 'SITE_AUTH_REQUIRED');
+  const login = await fetch(`http://127.0.0.1:${port}/auth`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: sitePassword }),
+  });
+  accessToken = (await login.json()).accessToken;
   const a = await connect(),
     b = await connect(),
     outsider = await connect();
@@ -93,6 +130,7 @@ try {
     { ok: true },
   );
   const roomId = a.state.roomId;
+  assert.match(roomId, /^\d{4}$/);
   assert.equal((await cmd(b, 'joinRoom', { roomId, name: 'Bob' })).ok, true);
   assert.equal((await cmd(a, 'startGame')).ok, true);
   await cmd(b, 'sync');
@@ -168,7 +206,7 @@ try {
   assert.equal(turn.state.deckCount, 77);
   assert.equal((await cmd(turn, 'drawTile')).ok, false);
   console.log(
-    'PASS: two-player Odin/Rummikub, authorization, exact refresh recovery, host preservation, process restart, rejected-action atomicity, draw ends turn.',
+    'PASS: site password, refused unauthenticated sockets, four-digit rooms, two-player Odin/Rummikub, authorization, exact refresh recovery, host preservation, process restart, rejected-action atomicity, draw ends turn.',
   );
 } finally {
   clients.forEach((c) => c.socket.disconnect());

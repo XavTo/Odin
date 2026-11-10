@@ -29,6 +29,16 @@ describe('Persistent multiplayer games', () => {
     service.startGame(r.id, 'a');
     return r;
   }
+  it('generates unique room codes of exactly four digits', () => {
+    const codes: string[] = [];
+    for (let i = 0; i < 30; i++) {
+      service.connect(`code-${i}`);
+      const r = service.createRoom('Test', `code-${i}`);
+      expect(r.id).toMatch(/^\d{4}$/);
+      codes.push(r.id);
+    }
+    expect(new Set(codes).size).toBe(codes.length);
+  });
   it('restores the exact identity, hand, turn and room after a refresh', () => {
     const a = service.connect('a');
     service.connect('b');

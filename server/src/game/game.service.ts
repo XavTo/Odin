@@ -1,5 +1,5 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import { createHash, randomBytes, randomUUID } from 'crypto';
+import { createHash, randomBytes, randomInt, randomUUID } from 'crypto';
 import {
   Card,
   GameRoom,
@@ -28,7 +28,10 @@ export class GameService implements OnModuleDestroy {
   private sockets = new Map<string, string>();
   constructor(private readonly store: GameStore) {
     const saved = store.load();
-    saved.rooms.forEach((r) => this.rooms.set(r.id, r));
+    saved.rooms.forEach((r) => {
+      if (!/^\d{4}$/.test(r.id)) r.id = this.roomCode();
+      this.rooms.set(r.id, r);
+    });
     saved.profiles.forEach((p) => this.profiles.set(p.id, p));
   }
   onModuleDestroy(): void {
@@ -113,10 +116,7 @@ export class GameService implements OnModuleDestroy {
     const profile = this.profileForSocket(socketId);
     this.assertAvailable(profile.id);
     const player = this.createPlayer(profile, name, socketId);
-    let id: string;
-    do {
-      id = randomBytes(3).toString('hex').toUpperCase();
-    } while (this.rooms.has(id));
+    const id = this.roomCode();
     const room: GameRoom = {
       id,
       game,
@@ -782,6 +782,15 @@ export class GameService implements OnModuleDestroy {
       if (!p.forfeited) return p.id;
     }
     throw new Error('Aucun joueur actif.');
+  }
+  private roomCode(): string {
+    if (this.rooms.size >= 10000)
+      throw new Error('Toutes les salles sont occupées. Réessayez plus tard.');
+    let id: string;
+    do {
+      id = randomInt(0, 10000).toString().padStart(4, '0');
+    } while (this.rooms.has(id));
+    return id;
   }
   private colorCount(room: GameRoom): number {
     return Math.max(

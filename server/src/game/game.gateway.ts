@@ -10,6 +10,7 @@ import {
 } from '@nestjs/websockets';
 import { OnModuleDestroy } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
+import { AuthService } from '../auth/auth.service';
 import { GameService } from './game.service';
 import { GameRoom, GameSettings } from './game.types';
 interface Payload {
@@ -34,8 +35,15 @@ export class GameGateway
   @WebSocketServer() server: Server;
   private timer?: ReturnType<typeof setInterval>;
   private rates = new Map<string, { time: number; count: number }>();
-  constructor(private readonly gameService: GameService) {}
+  constructor(
+    private readonly gameService: GameService,
+    private readonly auth: AuthService,
+  ) {}
   afterInit(): void {
+    this.server.use((socket, next) => {
+      if (this.auth.accepts(socket.handshake.auth?.accessToken)) next();
+      else next(new Error('SITE_AUTH_REQUIRED'));
+    });
     this.timer = setInterval(() => {
       for (const room of this.gameService.tick()) this.emitState(room);
     }, 1000);

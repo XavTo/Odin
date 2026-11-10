@@ -32,6 +32,11 @@ const esc = (v: unknown) =>
         c
       ]!,
   );
+let accessChecking = true,
+  siteUnlocked = false,
+  accessPending = false;
+let accessError = "";
+let accessUnavailable = false;
 let game: GameType = "odin";
 let state: PublicGameState | null = null;
 let connected = false,
@@ -39,7 +44,8 @@ let connected = false,
   busy = false,
   replaced = false;
 let playerName = read("odin-name") || "";
-let code = new URLSearchParams(location.search).get("room") || "";
+const invitedCode = new URLSearchParams(location.search).get("room") || "";
+let code = /^\d{4}$/.test(invitedCode) ? invitedCode : "";
 let selected = new Set<string>(),
   take: string | null = null;
 let draft: Card[][] | null = null;
@@ -67,12 +73,14 @@ const serverUrl =
     ? "http://localhost:3000"
     : location.origin);
 const socket = io(serverUrl, {
-  auth: (cb) => cb({ token: read("odin-token") }),
+  autoConnect: false,
+  auth: (cb) =>
+    cb({ token: read("odin-token"), accessToken: read("odin-site-access") }),
   reconnectionDelay: 700,
   reconnectionDelayMax: 5000,
   timeout: 20000,
 });
-app.innerHTML = `<div class="app-shell"><header class="hero"><img src="/peru-anniversary-ornament.png" alt="" class="ornament"><div><p class="eyebrow">Notre petit rendez-vous</p><h1>À toi de jouer<span>♥</span></h1><p>Odin, Rummikub et des souvenirs à partager.</p></div><img src="/peru-anniversary-ornament.png" alt="" class="ornament right"></header><div id="connection" role="status" aria-live="polite"></div><main id="content"></main><footer>Je t’aime mon cœur · Encore une petite partie ?</footer></div><div id="toast" role="status" aria-live="polite"></div><dialog id="confirm-dialog"><h2>Juste pour être sûrs</h2><p id="confirm-text"></p><div class="actions"><button class="secondary" data-action="confirm-no">Rester à la table</button><button data-action="confirm-yes">Confirmer</button></div></dialog>`;
+app.innerHTML = `<div class="app-shell"><header class="hero"><img src="/peru-anniversary-ornament.png" alt="" class="ornament"><div><h1>Odin &amp; Rummikub</h1></div><img src="/peru-anniversary-ornament.png" alt="" class="ornament right"></header><div id="connection" role="status" aria-live="polite"></div><main id="content"></main></div><div id="toast" role="status" aria-live="polite"></div><dialog id="confirm-dialog"><h2>Confirmer l’action</h2><p id="confirm-text"></p><div class="actions"><button class="secondary" data-action="confirm-no">Annuler</button><button data-action="confirm-yes">Confirmer</button></div></dialog>`;
 const content = document.querySelector<HTMLElement>("#content")!;
 function notify(message: string) {
   const el = document.querySelector<HTMLElement>("#toast")!;
@@ -83,7 +91,7 @@ function notify(message: string) {
 }
 function connection() {
   document.querySelector("#connection")!.innerHTML =
-    `<span class="dot ${ready ? "online" : ""}"></span>${ready ? "Connecté · Votre place est conservée après un refresh" : replaced ? "Votre profil est ouvert dans un autre onglet." : connected ? "Récupération de votre session…" : "Reconnexion en cours… Votre partie reste sauvegardée."}${replaced ? '<button class="text" data-action="reconnect">Reprendre ici</button>' : ""}`;
+    `<span class="dot ${ready ? "online" : ""}"></span>${!siteUnlocked ? (accessChecking ? "Connexion au serveur…" : "Accès au site") : ready ? "Connecté" : replaced ? "Votre profil est ouvert dans un autre onglet." : connected ? "Récupération de votre session…" : "Reconnexion en cours… Votre partie reste sauvegardée."}${replaced ? '<button class="text" data-action="reconnect">Reprendre ici</button>' : ""}`;
 }
 socket.on("connect", () => {
   connected = true;
@@ -120,7 +128,12 @@ socket.on("sessionReplaced", () => {
   ready = false;
   connection();
 });
-socket.on("connect_error", () => {
+socket.on("connect_error", (error) => {
+  if (error.message === "SITE_AUTH_REQUIRED") {
+    siteUnlocked = false;
+    accessError = "Saisissez le mot de passe pour vous reconnecter.";
+    render();
+  }
   connected = false;
   ready = false;
   connection();
@@ -169,13 +182,11 @@ async function command(
   busy = true;
   render();
   try {
-    const result = await socket
-      .timeout(10000)
-      .emitWithAck(event, {
-        roomId: state?.roomId,
-        revision: state?.revision,
-        ...payload,
-      });
+    const result = await socket.timeout(10000).emitWithAck(event, {
+      roomId: state?.roomId,
+      revision: state?.revision,
+      ...payload,
+    });
     if (!result.ok) {
       notify(result.message || "Action refusée.");
       return false;
@@ -230,24 +241,24 @@ function players(): string {
   return `<div class="players">${state!.players.map((p) => `<article class="player ${p.isCurrent ? "current" : ""} ${p.forfeited ? "forfeited" : ""}"><span class="avatar">${esc(p.name.slice(0, 1).toUpperCase())}</span><div><strong>${esc(p.name)}${p.id === state!.you?.id ? " <small>(vous)</small>" : ""}</strong><p>${p.forfeited ? "A abandonné" : !p.connected ? "Reconnexion attendue" : p.isCurrent ? "À son tour" : p.isHost ? "Hôte de la salle" : "À la table"} · ${p.handCount} ${game === "odin" ? "cartes" : "tuiles"}</p><small>${p.score} points${game === "rummikub" ? (p.opened ? " · Première pose faite" : " · Première pose à faire") : p.passed ? " · A passé" : ""}</small></div>${host() && !p.connected && !p.forfeited ? `<button class="text danger" data-remove="${p.id}">Retirer</button>` : ""}</article>`).join("")}</div>`;
 }
 function gameChoices(): string {
-  return `<div class="game-choices" role="group" aria-label="Choisir le jeu"><button class="game-choice ${game === "odin" ? "active" : ""}" data-game="odin" aria-pressed="${game === "odin"}"><div class="game-art odin-art"><span>8</span><span>9</span></div><div><span class="eyebrow">2 à 6 joueurs · Cartes</span><h2>Odin</h2><p>Jouez plus fort.<br>Gardez le moins de cartes.</p></div><span class="choose">${game === "odin" ? "Sélectionné ✓" : "Choisir Odin →"}</span></button><button class="game-choice ${game === "rummikub" ? "active" : ""}" data-game="rummikub" aria-pressed="${game === "rummikub"}"><div class="game-art rummi-art"><span>11</span><span>12</span><span>13</span></div><div><span class="eyebrow">2 à 4 joueurs · Tuiles</span><h2>Rummikub</h2><p>Des suites, des groupes.<br>La table est à réinventer.</p></div><span class="choose">${game === "rummikub" ? "Sélectionné ✓" : "Choisir Rummikub →"}</span></button></div>`;
+  return `<div class="game-choices" role="group" aria-label="Choisir le jeu"><button class="game-choice ${game === "odin" ? "active" : ""}" data-game="odin" aria-pressed="${game === "odin"}"><div class="game-art odin-art"><span>8</span><span>9</span></div><div><span class="eyebrow">2 à 6 joueurs · Cartes</span><h2>Odin</h2><p>9 cartes par joueur.<br>Le plus petit score gagne.</p></div><span class="choose">${game === "odin" ? "Sélectionné ✓" : "Choisir Odin →"}</span></button><button class="game-choice ${game === "rummikub" ? "active" : ""}" data-game="rummikub" aria-pressed="${game === "rummikub"}"><div class="game-art rummi-art"><span>11</span><span>12</span><span>13</span></div><div><span class="eyebrow">2 à 4 joueurs · Tuiles</span><h2>Rummikub</h2><p>14 tuiles par joueur.<br>Première pose de 30 points.</p></div><span class="choose">${game === "rummikub" ? "Sélectionné ✓" : "Choisir Rummikub →"}</span></button></div>`;
 }
 function home(): string {
-  return `<section class="intro"><span class="eyebrow">Les jeux sont meilleurs à deux</span><h2>On joue à quoi ?</h2><p>Choisissez votre jeu, invitez quelqu’un et retrouvez vos photos sur la table.</p></section>${gameChoices()}<section class="panel home-join"><div><span class="eyebrow">Votre prochaine partie</span><h2>Une place vous attend</h2><p>Une salle privée, un simple lien à partager.</p></div><div class="join-form"><label>Votre pseudo<input id="player-name" autocomplete="nickname" maxlength="24" placeholder="Votre petit nom" value="${esc(playerName)}"></label><button data-action="create" ${!ready || busy ? "disabled" : ""}>Créer une salle ${names[game]} <span>→</span></button><div class="join-code"><input id="room-code" aria-label="Code de la salle" placeholder="Code de la salle" maxlength="6" value="${esc(code)}"><button class="secondary" data-action="join" ${!ready || busy ? "disabled" : ""}>Rejoindre</button></div></div></section>`;
+  return `<section class="intro"><h2>Choisir un jeu</h2></section>${gameChoices()}<section class="panel home-join"><div><h2>Créer ou rejoindre une salle</h2><p>Partagez le code à 4 chiffres avec les autres joueurs.</p></div><div class="join-form"><label>Votre pseudo<input id="player-name" autocomplete="nickname" maxlength="24" placeholder="Pseudo" value="${esc(playerName)}"></label><button data-action="create" ${!ready || busy ? "disabled" : ""}>Créer une salle ${names[game]} <span>→</span></button><div class="join-code"><input id="room-code" aria-label="Code de la salle" placeholder="0000" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" value="${esc(code)}"><button class="secondary" data-action="join" ${!ready || busy ? "disabled" : ""}>Rejoindre</button></div></div></section>`;
 }
 function settings(): string {
   const s = state!;
   const disabled = !host() || busy || !ready;
-  return `<section class="panel"><h3>La partie, à votre façon</h3><div class="settings">${game === "odin" ? `<label>Score limite<input type="number" id="max-score" min="5" max="50" value="${s.settings.maxScore}" ${disabled ? "disabled" : ""}></label><label>Couleurs souhaitées<select id="color-count" ${disabled ? "disabled" : ""}>${[4, 5, 6].map((n) => `<option ${n === s.settings.colorCount ? "selected" : ""}>${n}</option>`).join("")}</select></label><p>${s.effectiveColorCount} couleurs actives pour garantir 9 cartes à chacun. Le plus petit score gagne.</p>` : `<label>Temps par tour<select id="turn-seconds" ${disabled ? "disabled" : ""}>${[60, 120, 0].map((n) => `<option value="${n}" ${n === s.settings.turnSeconds ? "selected" : ""}>${n ? `${n} secondes` : "Sans limite"}</option>`).join("")}</select></label><p>106 tuiles · 14 par joueur · Première pose de 30 points. À la fin du temps, une tuile est piochée et le tour passe.</p>`}</div><details class="photos"><summary>Nos photos sur les ${game === "odin" ? "cartes" : "tuiles"} <span>Personnaliser ↓</span></summary><p>Les photos sont partagées avec toute la salle. ${game === "rummikub" ? "Les valeurs 10 à 13 reprennent les photos 1 à 4 par défaut." : ""} ${host() ? "Choisissez une image pour chaque valeur." : "L’hôte peut choisir les photos."}</p><div class="photo-grid">${Array.from({ length: game === "odin" ? 9 : 13 }, (_, i) => `<label class="photo-picker"><img src="${esc(s.settings.photos[i + 1] || `/${(i % 9) + 1}.png`)}" alt="Photo ${i + 1}"><span>${i + 1} <small>Modifier</small></span><input type="file" data-photo="${i + 1}" accept="image/*" aria-label="Photo de la valeur ${i + 1}" ${disabled ? "disabled" : ""}></label>`).join("")}</div>${host() ? '<button class="text" data-action="reset-photos">Rétablir les photos d’origine</button>' : ""}</details></section>`;
+  return `<section class="panel"><h3>Options de la partie</h3><div class="settings">${game === "odin" ? `<label>Score limite<input type="number" id="max-score" min="5" max="50" value="${s.settings.maxScore}" ${disabled ? "disabled" : ""}></label><label>Couleurs souhaitées<select id="color-count" ${disabled ? "disabled" : ""}>${[4, 5, 6].map((n) => `<option ${n === s.settings.colorCount ? "selected" : ""}>${n}</option>`).join("")}</select></label><p>${s.effectiveColorCount} couleurs actives pour garantir 9 cartes à chacun. Le plus petit score gagne.</p>` : `<label>Temps par tour<select id="turn-seconds" ${disabled ? "disabled" : ""}>${[60, 120, 0].map((n) => `<option value="${n}" ${n === s.settings.turnSeconds ? "selected" : ""}>${n ? `${n} secondes` : "Sans limite"}</option>`).join("")}</select></label><p>106 tuiles · 14 par joueur · Première pose de 30 points. À la fin du temps, une tuile est piochée et le tour passe.</p>`}</div><details class="photos"><summary>Photos sur les ${game === "odin" ? "cartes" : "tuiles"} <span>Personnaliser ↓</span></summary><p>Les photos sont partagées avec toute la salle. ${game === "rummikub" ? "Les valeurs 10 à 13 reprennent les photos 1 à 4 par défaut." : ""} ${host() ? "Choisissez une image pour chaque valeur." : "L’hôte peut choisir les photos."}</p><div class="photo-grid">${Array.from({ length: game === "odin" ? 9 : 13 }, (_, i) => `<label class="photo-picker"><img src="${esc(s.settings.photos[i + 1] || `/${(i % 9) + 1}.png`)}" alt="Photo ${i + 1}"><span>${i + 1} <small>Modifier</small></span><input type="file" data-photo="${i + 1}" accept="image/*" aria-label="Photo de la valeur ${i + 1}" ${disabled ? "disabled" : ""}></label>`).join("")}</div>${host() ? '<button class="text" data-action="reset-photos">Rétablir les photos d’origine</button>' : ""}</details></section>`;
 }
 function room(): string {
   const s = state!;
-  return `<div class="room-bar"><div><span class="eyebrow">${names[game]} · Salle privée</span><h2>${s.roomId} <button class="secondary compact" data-action="invite">Copier l’invitation ↗</button></h2></div><button class="text" data-action="leave" ${!ready || busy ? "disabled" : ""}>${s.phase === "playing" || s.phase === "round_end" ? "Abandonner" : "Quitter la salle"}</button></div>${players()}${!host() && s.players.some((p) => p.isHost && !p.connected) ? '<p class="muted">L’hôte est déconnecté. Après 30 secondes, vous pouvez <button class="text" data-action="claim-host">reprendre le rôle d’hôte</button>.</p>' : ""}${s.phase === "lobby" ? `${settings()}<div class="start-row"><p>${s.players.length < 2 ? "Partagez le lien : il faut au moins deux joueurs." : !host() ? "La partie commence quand l’hôte est prêt." : "Tout le monde est là ? C’est parti."}</p><button data-action="start" ${!host() || !ready || busy || s.players.filter((p) => !p.forfeited).length < 2 || s.players.some((p) => !p.connected) ? "disabled" : ""}>Lancer la partie →</button></div>` : playArea()}`;
+  return `<div class="room-bar"><div><span class="eyebrow">${names[game]} · Salle privée</span><h2>${s.roomId} <button class="secondary compact" data-action="invite">Copier l’invitation ↗</button></h2></div><button class="text" data-action="leave" ${!ready || busy ? "disabled" : ""}>${s.phase === "playing" || s.phase === "round_end" ? "Abandonner" : "Quitter la salle"}</button></div>${players()}${!host() && s.players.some((p) => p.isHost && !p.connected) ? '<p class="muted">L’hôte est déconnecté. Après 30 secondes, vous pouvez <button class="text" data-action="claim-host">reprendre le rôle d’hôte</button>.</p>' : ""}${s.phase === "lobby" ? `${settings()}<div class="start-row"><p>${s.players.length < 2 ? "Partagez le lien : il faut au moins deux joueurs." : !host() ? "La partie commence quand l’hôte est prêt." : "La partie peut commencer."}</p><button data-action="start" ${!host() || !ready || busy || s.players.filter((p) => !p.forfeited).length < 2 || s.players.some((p) => !p.connected) ? "disabled" : ""}>Lancer la partie →</button></div>` : playArea()}`;
 }
 function result(): string {
   const s = state!;
   const r = s.roundResult;
-  return `<section class="panel result"><span class="eyebrow">${s.phase === "game_end" ? "Fin de partie" : `Manche ${s.round} terminée`}</span><h2>${s.phase === "game_end" ? s.winners?.map((w) => esc(w.name)).join(" & ") : r?.winnerIds.map((id) => esc(s.players.find((p) => p.id === id)?.name)).join(" & ")} ${s.phase === "game_end" && (s.winners?.length ?? 0) > 1 ? "se partagent la victoire" : "remporte la " + (s.phase === "game_end" ? "partie" : "manche")} ♥</h2><p>${esc(r?.reason)}</p><div class="results">${s.players.map((p) => `<div><strong>${esc(p.name)}</strong><span>${r?.points[p.id] !== undefined ? `${r.points[p.id] > 0 ? "+" : ""}${r.points[p.id]} cette manche · ` : ""}${p.score} au total</span></div>`).join("")}</div>${s.phase === "game_end" ? '<p class="muted">Le classement est mis à jour à la fin des parties jouées.</p>' : ""}<button data-action="${s.phase === "game_end" ? "start" : "next-round"}" ${!host() || busy || !ready || s.players.filter((p) => !p.forfeited).length < 2 ? "disabled" : ""}>${s.phase === "game_end" ? "Rejouer ensemble" : "Manche suivante"} →</button>${!host() ? "<p>En attente de l’hôte…</p>" : ""}</section>`;
+  return `<section class="panel result"><span class="eyebrow">${s.phase === "game_end" ? "Fin de partie" : `Manche ${s.round} terminée`}</span><h2>${s.phase === "game_end" ? s.winners?.map((w) => esc(w.name)).join(" & ") : r?.winnerIds.map((id) => esc(s.players.find((p) => p.id === id)?.name)).join(" & ")} ${s.phase === "game_end" && (s.winners?.length ?? 0) > 1 ? "se partagent la victoire" : "remporte la " + (s.phase === "game_end" ? "partie" : "manche")}</h2><p>${esc(r?.reason)}</p><div class="results">${s.players.map((p) => `<div><strong>${esc(p.name)}</strong><span>${r?.points[p.id] !== undefined ? `${r.points[p.id] > 0 ? "+" : ""}${r.points[p.id]} cette manche · ` : ""}${p.score} au total</span></div>`).join("")}</div>${s.phase === "game_end" ? '<p class="muted">Le classement est mis à jour à la fin des parties jouées.</p>' : ""}<button data-action="${s.phase === "game_end" ? "start" : "next-round"}" ${!host() || busy || !ready || s.players.filter((p) => !p.forfeited).length < 2 ? "disabled" : ""}>${s.phase === "game_end" ? "Rejouer" : "Manche suivante"} →</button>${!host() ? "<p>En attente de l’hôte…</p>" : ""}</section>`;
 }
 function odinHint(): string {
   if (!state || !selected.size)
@@ -289,7 +300,7 @@ function playArea(): string {
   const me = yourTurn();
   const current = s.players.find((p) => p.id === s.currentPlayerId);
   const b = board();
-  return `<section class="table-panel ${me ? "my-turn" : ""}"><div class="table-heading"><div><span class="eyebrow">${game === "odin" ? `Manche ${s.round}` : `${s.deckCount} tuiles dans la pioche`}</span><h2>${me ? "À vous de jouer" : `Au tour de ${esc(current?.name)}`}</h2><p>${!current?.connected ? "Sa place est conservée pendant la reconnexion." : game === "rummikub" ? "Préparez votre table, puis validez le tour." : "Une bonne combinaison peut tout changer."}</p></div><span class="turn-clock" id="timer"></span></div>${
+  return `<section class="table-panel ${me ? "my-turn" : ""}"><div class="table-heading"><div><span class="eyebrow">${game === "odin" ? `Manche ${s.round}` : `${s.deckCount} tuiles dans la pioche`}</span><h2>${me ? "À vous de jouer" : `Au tour de ${esc(current?.name)}`}</h2><p>${!current?.connected ? "Sa place est conservée pendant la reconnexion." : game === "rummikub" ? "Préparez votre table, puis validez le tour." : "Posez des cartes ou passez votre tour."}</p></div><span class="turn-clock" id="timer"></span></div>${
     game === "odin"
       ? `<div class="odin-table tile-row">${
           s.table.length
@@ -300,13 +311,13 @@ function playArea(): string {
                 .join("")
             : '<div class="empty-table"><span>✧</span><p>Un nouveau pli à ouvrir</p></div>'
         }</div><p class="table-note">${s.table.length === 1 ? "Cette carte est récupérée automatiquement si votre main n’est pas vidée." : s.table.length > 1 ? "Choisissez ici la carte à récupérer. Aucune reprise si vous videz votre main." : "Une seule carte pour commencer. Une main de même couleur ou valeur gagne automatiquement à l’ouverture du pli."}</p>`
-      : `<div class="rummi-board" data-drop-row="new"><div class="board-help">${s.players.find((p) => p.id === s.you?.id)?.opened ? "Sélectionnez des tuiles, puis une position + pour les déplacer. Le glisser-déposer fonctionne aussi." : "Première pose : au moins 30 points de votre chevalet. La table existante reste intacte."}</div>${b.map((m, row) => `<div class="meld ${validMeld(m) === null ? "invalid" : ""}" data-drop-row="${row}"><span class="meld-label">${row + 1}</span><div class="meld-tiles">${m.map((t, pos) => `${slot(row, pos)}${card(t, "board", !me || busy || !canTouch(t))}`).join("")}${slot(row, m.length)}</div>${me ? `<button class="text compact" data-reverse="${row}" ${busy ? "disabled" : ""} title="Inverser l’ordre">⇄</button>` : ""}<span class="meld-status">${validMeld(m) === null ? "À compléter" : `${validMeld(m)} pts ✓`}</span></div>`).join("") || '<div class="empty-table"><span>✧</span><p>La première combinaison ouvre le bal.</p></div>'}</div>`
-  }</section><section class="panel rack-panel"><div class="rack-heading"><div><span class="eyebrow">À vous de composer</span><h2>${game === "odin" ? "Votre main" : "Votre chevalet"} <small>${game === "odin" ? s.hand.length : rack().length}</small></h2></div><div class="toolbar"><button class="text" data-action="sort">Trier par ${sort === "color" ? "valeur" : "couleur"}</button><button class="text" data-action="photos">${photosVisible ? "Masquer" : "Afficher"} les photos</button></div></div><div class="tile-row rack" data-drop-rack="true">${
+      : `<div class="rummi-board" data-drop-row="new"><div class="board-help">${s.players.find((p) => p.id === s.you?.id)?.opened ? "Sélectionnez des tuiles, puis une position + pour les déplacer. Le glisser-déposer fonctionne aussi." : "Première pose : au moins 30 points de votre chevalet. La table existante reste intacte."}</div>${b.map((m, row) => `<div class="meld ${validMeld(m) === null ? "invalid" : ""}" data-drop-row="${row}"><span class="meld-label">${row + 1}</span><div class="meld-tiles">${m.map((t, pos) => `${slot(row, pos)}${card(t, "board", !me || busy || !canTouch(t))}`).join("")}${slot(row, m.length)}</div>${me ? `<button class="text compact" data-reverse="${row}" ${busy ? "disabled" : ""} title="Inverser l’ordre">⇄</button>` : ""}<span class="meld-status">${validMeld(m) === null ? "À compléter" : `${validMeld(m)} pts ✓`}</span></div>`).join("") || '<div class="empty-table"><span>✧</span><p>Aucune combinaison sur la table.</p></div>'}</div>`
+  }</section><section class="panel rack-panel"><div class="rack-heading"><div><h2>${game === "odin" ? "Votre main" : "Votre chevalet"} <small>${game === "odin" ? s.hand.length : rack().length}</small></h2></div><div class="toolbar"><button class="text" data-action="sort">Trier par ${sort === "color" ? "valeur" : "couleur"}</button><button class="text" data-action="photos">${photosVisible ? "Masquer" : "Afficher"} les photos</button></div></div><div class="tile-row rack" data-drop-rack="true">${
     sorted(game === "odin" ? s.hand : rack())
       .map((t) => card(t, "hand", !me || busy))
       .join("") ||
     '<p class="muted">Chevalet vide. Validez votre tour pour gagner !</p>'
-  }</div><div class="action-bar"><p id="selection-hint" aria-live="polite">${game === "odin" ? odinHint() : `${selected.size} tuile(s) sélectionnée(s) · ${draft ? "Modifications en cours" : "Rien n’est joué avant validation"}`}</p><div class="actions">${game === "odin" ? `<button class="secondary" data-action="suggest" ${!me || busy ? "disabled" : ""}>Une idée ?</button><button class="text" data-action="clear">Désélectionner</button><button class="secondary" data-action="pass" ${!me || busy || s.leaderRequired ? "disabled" : ""}>Passer</button><button data-action="play" ${!me || busy || !odinHint().startsWith("Prêt") ? "disabled" : ""}>Jouer ${selected.size || ""} →</button>` : `<button class="secondary" data-action="new-meld" ${!me || busy || !selected.size ? "disabled" : ""}>Nouvelle combinaison</button><button class="text" data-action="undo" ${!me || busy || !undoStack.length ? "disabled" : ""}>Annuler</button><button class="text" data-action="reset" ${!me || busy || !draft ? "disabled" : ""}>Tout rétablir</button><button class="secondary" data-action="draw" ${!me || busy ? "disabled" : ""}>${s.deckCount ? "Piocher et passer" : "Passer (pioche vide)"}</button><button data-action="validate" ${!me || busy || !draft ? "disabled" : ""}>Valider le tour →</button>`}</div></div></section>`;
+  }</div><div class="action-bar"><p id="selection-hint" aria-live="polite">${game === "odin" ? odinHint() : `${selected.size} tuile(s) sélectionnée(s) · ${draft ? "Modifications en cours" : "Rien n’est joué avant validation"}`}</p><div class="actions">${game === "odin" ? `<button class="secondary" data-action="suggest" ${!me || busy ? "disabled" : ""}>Suggestion</button><button class="text" data-action="clear">Désélectionner</button><button class="secondary" data-action="pass" ${!me || busy || s.leaderRequired ? "disabled" : ""}>Passer</button><button data-action="play" ${!me || busy || !odinHint().startsWith("Prêt") ? "disabled" : ""}>Jouer ${selected.size || ""} →</button>` : `<button class="secondary" data-action="new-meld" ${!me || busy || !selected.size ? "disabled" : ""}>Nouvelle combinaison</button><button class="text" data-action="undo" ${!me || busy || !undoStack.length ? "disabled" : ""}>Annuler</button><button class="text" data-action="reset" ${!me || busy || !draft ? "disabled" : ""}>Tout rétablir</button><button class="secondary" data-action="draw" ${!me || busy ? "disabled" : ""}>${s.deckCount ? "Piocher et passer" : "Passer (pioche vide)"}</button><button data-action="validate" ${!me || busy || !draft ? "disabled" : ""}>Valider le tour →</button>`}</div></div></section>`;
 }
 function slot(row: number, pos: number): string {
   return `<button class="slot" data-place="${row}:${pos}" data-drop-row="${row}" data-drop-pos="${pos}" aria-label="Insérer à la position ${pos + 1} de la combinaison ${row + 1}" ${!yourTurn() || busy || !selected.size ? "disabled" : ""}>+</button>`;
@@ -339,12 +350,21 @@ function validMeld(m: Card[]): number | null {
   return m.reduce((sum, _, i) => sum + start + i, 0);
 }
 function rules(): string {
-  return `<section class="panel rules"><h3>Les règles, à portée de main</h3>${game === "odin" ? "<p>9 cartes par joueur. Ouvrez avec une carte, puis posez une combinaison de même couleur ou même valeur, de valeur supérieure : même nombre de cartes ou une de plus. Les chiffres forment le plus grand nombre possible (8 et 2 = 82).</p><p>Après une pose, récupérez une carte de la table précédente, sauf si vous videz votre main. Passer n’empêche pas de rejouer plus tard. Quand tous les autres passent, le dernier à jouer ouvre le pli suivant.</p><p>Une main vidée ou entièrement de même couleur/valeur à l’ouverture d’un pli termine la manche. Les autres marquent un point par carte. À la limite de score, le plus petit total gagne.</p>" : '<p>106 tuiles, dont 2 jokers. Chacun reçoit 14 tuiles. Posez des groupes de 3 ou 4 valeurs identiques de couleurs différentes, ou des suites d’au moins 3 valeurs consécutives de même couleur. Le 1 ne suit jamais le 13.</p><p>Votre première pose doit valoir au moins 30 points, uniquement avec votre chevalet. Vous pourrez réorganiser la table aux tours suivants. Un joker représente la tuile qu’il remplace ; il reste sur la table et peut être réutilisé dans une combinaison valide.</p><p>Chaque tour : posez au moins une tuile, ou piochez et passez. Toutes les combinaisons doivent être valides en fin de tour. Videz votre chevalet pour gagner. Un joker restant coûte 30 points. Si la pioche est vide et tout le monde passe, le plus petit chevalet gagne.</p><p>Pour déplacer : sélectionnez une ou plusieurs tuiles, puis cliquez sur + entre deux tuiles ou « Nouvelle combinaison ». Déplacez une tuile vers le chevalet pour reprendre une tuile posée pendant ce tour. « Annuler » revient d’un geste en arrière.</p><a href="https://rummikub.com/rules/" target="_blank" rel="noopener">Consulter les règles classiques officielles ↗</a>'}</section>`;
+  return `<section class="panel rules"><h3>Règles</h3>${game === "odin" ? "<p>9 cartes par joueur. Ouvrez avec une carte, puis posez une combinaison de même couleur ou même valeur, de valeur supérieure : même nombre de cartes ou une de plus. Les chiffres forment le plus grand nombre possible (8 et 2 = 82).</p><p>Après une pose, récupérez une carte de la table précédente, sauf si vous videz votre main. Passer n’empêche pas de rejouer plus tard. Quand tous les autres passent, le dernier à jouer ouvre le pli suivant.</p><p>Une main vidée ou entièrement de même couleur/valeur à l’ouverture d’un pli termine la manche. Les autres marquent un point par carte. À la limite de score, le plus petit total gagne.</p>" : '<p>106 tuiles, dont 2 jokers. Chacun reçoit 14 tuiles. Posez des groupes de 3 ou 4 valeurs identiques de couleurs différentes, ou des suites d’au moins 3 valeurs consécutives de même couleur. Le 1 ne suit jamais le 13.</p><p>Votre première pose doit valoir au moins 30 points, uniquement avec votre chevalet. Vous pourrez réorganiser la table aux tours suivants. Un joker représente la tuile qu’il remplace ; il reste sur la table et peut être réutilisé dans une combinaison valide.</p><p>Chaque tour : posez au moins une tuile, ou piochez et passez. Toutes les combinaisons doivent être valides en fin de tour. Videz votre chevalet pour gagner. Un joker restant coûte 30 points. Si la pioche est vide et tout le monde passe, le plus petit chevalet gagne.</p><p>Pour déplacer : sélectionnez une ou plusieurs tuiles, puis cliquez sur + entre deux tuiles ou « Nouvelle combinaison ». Déplacez une tuile vers le chevalet pour reprendre une tuile posée pendant ce tour. « Annuler » revient d’un geste en arrière.</p><a href="https://rummikub.com/rules/" target="_blank" rel="noopener">Consulter les règles classiques officielles ↗</a>'}</section>`;
 }
 function ranking(): string {
-  return `<section class="panel ranking"><div class="section-heading"><div><span class="eyebrow">Les petits défis entre nous</span><h2>Classement ${names[game]}</h2></div><button class="text" data-action="refresh-ranking">Actualiser ↻</button></div><p class="muted">1000 points Elo au départ · Classement séparé par jeu · Profil conservé dans ce navigateur.</p>${rankings.length ? `<div class="ranking-scroll"><table><thead><tr><th>Place</th><th>Joueur</th><th>Elo</th><th>Victoires</th><th>Parties</th></tr></thead><tbody>${rankings.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td><strong>${r.rating}</strong></td><td>${r.wins}${r.draws ? ` (+${r.draws} ex æquo)` : ""}</td><td>${r.played}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty-ranking">Le premier chapitre reste à écrire.<br>Terminez une partie pour apparaître ici.</div>'}</section>`;
+  return `<section class="panel ranking"><div class="section-heading"><div><h2>Classement ${names[game]}</h2></div><button class="text" data-action="refresh-ranking">Actualiser ↻</button></div><p class="muted">1000 points Elo au départ · Classement séparé par jeu · Profil conservé dans ce navigateur.</p>${rankings.length ? `<div class="ranking-scroll"><table><thead><tr><th>Place</th><th>Joueur</th><th>Elo</th><th>Victoires</th><th>Parties</th></tr></thead><tbody>${rankings.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td><strong>${r.rating}</strong></td><td>${r.wins}${r.draws ? ` (+${r.draws} ex æquo)` : ""}</td><td>${r.played}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty-ranking">Aucune partie terminée.</div>'}</section>`;
 }
 function render() {
+  if (!siteUnlocked) {
+    content.innerHTML = accessChecking
+      ? '<section class="panel access-panel"><p>Connexion au serveur…</p></section>'
+      : accessUnavailable
+        ? `<section class="panel access-panel"><h2>Serveur indisponible</h2><p>${esc(accessError)}</p><button data-action="retry-access">Réessayer</button></section>`
+        : `<section class="panel access-panel"><h2>Connexion</h2><form id="access-form"><label>Mot de passe<input id="site-password" type="password" autocomplete="current-password" required maxlength="1024" ${accessPending ? "disabled" : ""}></label>${accessError ? `<p class="access-error" role="alert">${esc(accessError)}</p>` : ""}<button type="submit" ${accessPending ? "disabled" : ""}>${accessPending ? "Connexion…" : "Se connecter"}</button></form></section>`;
+    connection();
+    return;
+  }
   const focused = document.activeElement as HTMLInputElement | null;
   const id = focused?.id;
   const range =
@@ -539,6 +559,59 @@ async function photoUpload(file: File, value: string) {
     notify("Impossible de lire cette image. Essayez un fichier JPEG ou PNG.");
   }
 }
+async function bootstrapAccess() {
+  accessChecking = true;
+  accessUnavailable = false;
+  render();
+  try {
+    const token = read("odin-site-access");
+    const response = await fetch(`${serverUrl}/auth`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw new Error("Le serveur ne répond pas.");
+    const status = await response.json();
+    siteUnlocked = !status.required || status.authorized;
+    if (siteUnlocked) socket.connect();
+  } catch {
+    accessUnavailable = true;
+    accessError =
+      "Impossible de joindre le serveur. Réessayez dans quelques secondes.";
+  } finally {
+    accessChecking = false;
+    render();
+  }
+}
+async function unlockSite() {
+  if (accessPending) return;
+  const password =
+    document.querySelector<HTMLInputElement>("#site-password")?.value;
+  if (!password) return;
+  accessPending = true;
+  accessError = "";
+  render();
+  try {
+    const response = await fetch(`${serverUrl}/auth`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+      signal: AbortSignal.timeout(15000),
+    });
+    const result = await response.json();
+    if (!response.ok) {
+      accessError = result.message || "Connexion refusée.";
+      return;
+    }
+    if (result.accessToken) save("odin-site-access", result.accessToken);
+    siteUnlocked = true;
+    socket.connect();
+  } catch {
+    accessError = "Impossible de joindre le serveur. Réessayez.";
+  } finally {
+    accessPending = false;
+    render();
+  }
+}
 async function askConfirmation(message: string): Promise<boolean> {
   const dialog = document.querySelector<HTMLDialogElement>("#confirm-dialog")!;
   document.querySelector("#confirm-text")!.textContent = message;
@@ -554,6 +627,9 @@ function finishConfirmation(value: boolean) {
 }
 async function action(name: string) {
   switch (name) {
+    case "retry-access":
+      await bootstrapAccess();
+      return;
     case "confirm-yes":
       finishConfirmation(true);
       return;
@@ -564,8 +640,8 @@ async function action(name: string) {
     case "join":
       if (!playerName.trim()) return notify("Choisissez votre pseudo.");
       save("odin-name", playerName.trim());
-      if (name === "join" && !/^[A-Z0-9]{4,6}$/i.test(code.trim()))
-        return notify("Entrez le code de la salle.");
+      if (name === "join" && !/^\d{4}$/.test(code.trim()))
+        return notify("Entrez le code à 4 chiffres.");
       await command(name === "create" ? "createRoom" : "joinRoom", {
         name: playerName.trim(),
         game,
@@ -682,7 +758,7 @@ async function action(name: string) {
       url.searchParams.set("room", state!.roomId);
       try {
         await navigator.clipboard.writeText(url.toString());
-        notify("Invitation copiée. Envoyez-la à votre partenaire !");
+        notify("Lien d’invitation copié.");
       } catch {
         notify(
           `Copie indisponible. Partagez le code ${state!.roomId} avec votre partenaire.`,
@@ -696,11 +772,17 @@ async function action(name: string) {
       return;
   }
 }
+app.addEventListener("submit", (event) => {
+  if ((event.target as HTMLElement).id === "access-form") {
+    event.preventDefault();
+    void unlockSite();
+  }
+});
 app.addEventListener("input", (event) => {
   const t = event.target as HTMLInputElement;
   if (t.id === "player-name") playerName = t.value;
   if (t.id === "room-code") {
-    code = t.value.toUpperCase();
+    code = t.value.replace(/\D/g, "").slice(0, 4);
     t.value = code;
   }
 });
@@ -813,7 +895,8 @@ function updateClock() {
         Math.ceil((state.deadline - (Date.now() + clockOffset)) / 1000),
       )
     : null;
-  el.textContent = remaining === null ? "À votre rythme" : `${remaining}s`;
+  el.textContent =
+    remaining === null ? "Sans limite de temps" : `${remaining}s`;
   el.classList.toggle("urgent", remaining !== null && remaining <= 10);
 }
 setInterval(updateClock, 500);
@@ -821,3 +904,4 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden && socket.connected && ready) socket.emit("sync");
 });
 render();
+void bootstrapAccess();
