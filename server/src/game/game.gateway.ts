@@ -23,6 +23,7 @@ interface Payload {
   melds?: unknown;
   playerId?: unknown;
   settings?: Partial<GameSettings>;
+  photos?: unknown;
 }
 @WebSocketGateway({ cors: { origin: '*' }, maxHttpBufferSize: 2_000_000 })
 export class GameGateway
@@ -59,10 +60,14 @@ export class GameGateway
       old?.emit('sessionReplaced');
       old?.disconnect(true);
     }
+    client.data.adminToken = client.handshake.auth?.adminToken;
+    const isAdmin = this.auth.acceptsAdmin(client.data.adminToken);
     client.emit('session', {
       playerId: profile.id,
       token,
       name: profile.name,
+      isAdmin,
+      photos: isAdmin ? this.gameService.getPhotos() : undefined,
       reset,
     });
     if (room) {
@@ -124,6 +129,36 @@ export class GameGateway
     return this.run(c, () =>
       this.gameService.draw(p?.roomId, c.id, p?.revision),
     );
+  }
+  @SubscribeMessage('savePhotos')
+  savePhotos(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
+    try {
+      this.limit(c);
+      this.requireAdmin(c);
+      for (const room of this.gameService.savePhotos(p?.photos))
+        this.emitState(room);
+      const photos = this.gameService.getPhotos();
+      for (const socket of this.server.sockets.sockets.values())
+        if (this.auth.acceptsAdmin(socket.data.adminToken))
+          socket.emit('photosUpdated', { photos });
+      return { ok: true };
+    } catch (e) {
+      return this.error(e);
+    }
+  }
+  @SubscribeMessage('getPhotos')
+  getPhotos(@ConnectedSocket() c: Socket) {
+    try {
+      this.limit(c);
+      this.requireAdmin(c);
+      return { ok: true, photos: this.gameService.getPhotos() };
+    } catch (e) {
+      return this.error(e);
+    }
+  }
+  private requireAdmin(client: Socket): void {
+    if (!this.auth.acceptsAdmin(client.data.adminToken))
+      throw new Error('Accès administrateur requis.');
   }
   @SubscribeMessage('updateSettings')
   settings(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {

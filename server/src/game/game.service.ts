@@ -25,6 +25,7 @@ import { GameStore } from './game.store';
 export class GameService implements OnModuleDestroy {
   private rooms = new Map<string, GameRoom>();
   private profiles = new Map<string, Profile>();
+  private photos: Record<string, string> = {};
   private sockets = new Map<string, string>();
   constructor(private readonly store: GameStore) {
     const saved = store.load();
@@ -33,6 +34,7 @@ export class GameService implements OnModuleDestroy {
       this.rooms.set(r.id, r);
     });
     saved.profiles.forEach((p) => this.profiles.set(p.id, p));
+    this.photos = saved.photos;
   }
   onModuleDestroy(): void {
     const now = Date.now();
@@ -123,7 +125,12 @@ export class GameService implements OnModuleDestroy {
       hostId: player.id,
       players: [player],
       roundStarterId: null,
-      settings: { maxScore: 15, colorCount: 6, turnSeconds: 60, photos: {} },
+      settings: {
+        maxScore: 15,
+        colorCount: 6,
+        turnSeconds: 60,
+        photos: { ...this.photos },
+      },
       revision: 0,
       updatedAt: Date.now(),
       pausedAt: null,
@@ -306,29 +313,42 @@ export class GameService implements OnModuleDestroy {
         throw new Error('Durée de tour invalide.');
       nextSettings.turnSeconds = settings.turnSeconds;
     }
-    if (settings.photos !== undefined) {
-      if (
-        !settings.photos ||
-        typeof settings.photos !== 'object' ||
-        Array.isArray(settings.photos)
-      )
-        throw new Error('Photos invalides.');
-      const photos: Record<string, string> = {};
-      for (const [value, url] of Object.entries(settings.photos)) {
-        if (
-          !/^(?:[1-9]|1[0-3])$/.test(value) ||
-          typeof url !== 'string' ||
-          url.length > 120000 ||
-          !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(url)
-        )
-          throw new Error('Photo invalide ou trop volumineuse.');
-        photos[value] = url;
-      }
-      nextSettings.photos = photos;
-    }
+    if (settings.photos !== undefined)
+      throw new Error('Modification réservée à l’éditeur administrateur.');
     room.settings = nextSettings;
     this.touch(room);
     return room;
+  }
+  getPhotos(): Record<string, string> {
+    return { ...this.photos };
+  }
+  savePhotos(input: unknown): GameRoom[] {
+    const photos = this.validatePhotos(input);
+    this.photos = { ...photos };
+    const rooms = [...this.rooms.values()];
+    for (const room of rooms) {
+      room.settings.photos = { ...photos };
+      room.revision++;
+      room.updatedAt = Date.now();
+    }
+    this.save();
+    return rooms;
+  }
+  private validatePhotos(input: unknown): Record<string, string> {
+    if (!input || typeof input !== 'object' || Array.isArray(input))
+      throw new Error('Photos invalides.');
+    const photos: Record<string, string> = {};
+    for (const [value, url] of Object.entries(input)) {
+      if (
+        !/^(?:[1-9]|1[0-3])$/.test(value) ||
+        typeof url !== 'string' ||
+        url.length > 120000 ||
+        !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(url)
+      )
+        throw new Error('Photo invalide ou trop volumineuse.');
+      photos[value] = url;
+    }
+    return photos;
   }
   playCards(
     roomId: unknown,
@@ -815,6 +835,6 @@ export class GameService implements OnModuleDestroy {
     this.save();
   }
   private save(): void {
-    this.store.save(this.rooms.values(), this.profiles.values());
+    this.store.save(this.rooms.values(), this.profiles.values(), this.photos);
   }
 }

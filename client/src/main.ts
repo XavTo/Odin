@@ -1,4 +1,6 @@
 import "./style.css";
+import { PhotoEditor, photoFor } from "./photo-editor";
+import type { Photos } from "./photo-editor";
 import { io } from "socket.io-client";
 import type {
   Card,
@@ -51,6 +53,10 @@ let selected = new Set<string>(),
 let draft: Card[][] | null = null;
 let undoStack: Card[][][] = [];
 let sort: "color" | "value" = "color";
+let photoLibrary: Photos = {};
+let isAdmin = false;
+let adminPending = false;
+let openPhotosAfterAdmin = false;
 let photosVisible = read("odin-photos") !== "off";
 let rulesOpen = false,
   rankingsOpen = false;
@@ -75,13 +81,39 @@ const serverUrl =
 const socket = io(serverUrl, {
   autoConnect: false,
   auth: (cb) =>
-    cb({ token: read("odin-token"), accessToken: read("odin-site-access") }),
+    cb({
+      token: read("odin-token"),
+      accessToken: read("odin-site-access"),
+      adminToken: read("odin-admin-access"),
+    }),
   reconnectionDelay: 700,
   reconnectionDelayMax: 5000,
   timeout: 20000,
 });
-app.innerHTML = `<div class="app-shell"><header class="hero"><img src="/peru-anniversary-ornament.png" alt="" class="ornament"><div><h1>Odin &amp; Rummikub</h1></div><img src="/peru-anniversary-ornament.png" alt="" class="ornament right"></header><div id="connection" role="status" aria-live="polite"></div><main id="content"></main></div><div id="toast" role="status" aria-live="polite"></div><dialog id="confirm-dialog"><h2>Confirmer l’action</h2><p id="confirm-text"></p><div class="actions"><button class="secondary" data-action="confirm-no">Annuler</button><button data-action="confirm-yes">Confirmer</button></div></dialog>`;
+app.innerHTML = `<div class="app-shell"><header class="hero"><img src="/peru-anniversary-ornament.png" alt="" class="ornament"><div><h1>Odin &amp; Rummikub</h1></div><img src="/peru-anniversary-ornament.png" alt="" class="ornament right"></header><div id="connection" role="status" aria-live="polite"></div><main id="content"></main></div><div id="toast" role="status" aria-live="polite"></div><dialog id="confirm-dialog"><h2>Confirmer l’action</h2><p id="confirm-text"></p><div class="actions"><button class="secondary" data-action="confirm-no">Annuler</button><button data-action="confirm-yes">Confirmer</button></div></dialog><dialog id="admin-dialog"><form id="admin-form"><h2>Administration</h2><label>Mot de passe administrateur<input id="admin-password" type="password" autocomplete="current-password" required maxlength="1024"></label><p id="admin-error" role="alert"></p><div class="actions"><button type="button" class="secondary" data-action="admin-close">Annuler</button><button type="submit">Se connecter</button></div></form></dialog>`;
 const content = document.querySelector<HTMLElement>("#content")!;
+const photoEditor = new PhotoEditor(async (photos) => {
+  if (!ready || !socket.connected || !isAdmin)
+    throw new Error("Accès administrateur requis.");
+  let result;
+  try {
+    result = await socket.timeout(15000).emitWithAck("savePhotos", {
+      photos,
+    });
+  } catch {
+    throw new Error("Enregistrement non confirmé. Réessayez.");
+  }
+  if (!result.ok) {
+    if (result.message === "Accès administrateur requis.") {
+      isAdmin = false;
+      render();
+    }
+    throw new Error(result.message || "Enregistrement impossible.");
+  }
+  photoLibrary = { ...photos };
+  render();
+  notify("Photos enregistrées.");
+});
 function notify(message: string) {
   const el = document.querySelector<HTMLElement>("#toast")!;
   el.textContent = message;
@@ -111,8 +143,16 @@ socket.on("connect", () => {
 });
 socket.on(
   "session",
-  (session: { token?: string; name: string; reset: boolean }) => {
+  (session: {
+    token?: string;
+    name: string;
+    reset: boolean;
+    photos?: Photos;
+    isAdmin?: boolean;
+  }) => {
     if (session.token) save("odin-token", session.token);
+    photoLibrary = session.photos ?? {};
+    isAdmin = session.isAdmin === true;
     if (!playerName && session.name !== "Joueur") playerName = session.name;
     ready = true;
     busy = false;
@@ -125,8 +165,15 @@ socket.on(
     connection();
     render();
     if (rankingsOpen) void loadRankings();
+    if (openPhotosAfterAdmin && isAdmin) {
+      openPhotosAfterAdmin = false;
+      photoEditor.open(photoLibrary, 13);
+    }
   },
 );
+socket.on("photosUpdated", (update: { photos: Photos }) => {
+  photoLibrary = update.photos;
+});
 socket.on("disconnect", () => {
   connected = false;
   ready = false;
@@ -243,8 +290,7 @@ function sorted(cards: Card[]): Card[] {
 function card(tile: Card, source: string, disabled = false): string {
   const photo =
     !tile.joker && photosVisible
-      ? state?.settings.photos[tile.value] ||
-        `/${((tile.value - 1) % 9) + 1}.png`
+      ? photoFor(state?.settings.photos ?? {}, tile.value)
       : "";
   return `<button type="button" class="tile ${game === "odin" ? "odin-card" : ""} color-${tile.color} ${selected.has(tile.id) || (source === "take" && take === tile.id) ? "selected" : ""} ${photo ? "photo" : ""}" data-tile="${esc(tile.id)}" data-source="${source}" aria-label="${tile.joker ? "Joker" : `${tile.value} ${colors[tile.color]}`}" aria-pressed="${selected.has(tile.id) || (source === "take" && take === tile.id)}" ${disabled ? "disabled" : ""} draggable="${yourTurn() && game === "rummikub" && !disabled}">${photo ? `<img src="${esc(photo)}" alt="" draggable="false">` : ""}<span class="tile-number">${tile.joker ? "★" : tile.value}</span><span class="tile-color">${tile.joker ? "Joker" : colors[tile.color]}</span></button>`;
 }
@@ -255,12 +301,12 @@ function gameChoices(): string {
   return `<div class="game-choices" role="group" aria-label="Choisir le jeu"><button class="game-choice ${game === "odin" ? "active" : ""}" data-game="odin" aria-pressed="${game === "odin"}"><div class="game-art odin-art"><span>8</span><span>9</span></div><div><span class="eyebrow">2 à 6 joueurs · Cartes</span><h2>Odin</h2><p>9 cartes par joueur.<br>Le plus petit score gagne.</p></div><span class="choose">${game === "odin" ? "Sélectionné ✓" : "Choisir Odin →"}</span></button><button class="game-choice ${game === "rummikub" ? "active" : ""}" data-game="rummikub" aria-pressed="${game === "rummikub"}"><div class="game-art rummi-art"><span>11</span><span>12</span><span>13</span></div><div><span class="eyebrow">2 à 4 joueurs · Tuiles</span><h2>Rummikub</h2><p>14 tuiles par joueur.<br>Première pose de 30 points.</p></div><span class="choose">${game === "rummikub" ? "Sélectionné ✓" : "Choisir Rummikub →"}</span></button></div>`;
 }
 function home(): string {
-  return `${gameChoices()}<section class="panel home-join"><div><h2>Salle</h2></div><div class="join-form"><label>Pseudo<input id="player-name" autocomplete="nickname" maxlength="24" placeholder="Pseudo" value="${esc(playerName)}"></label><button data-action="create" ${!ready || busy ? "disabled" : ""}>Créer une salle <span>→</span></button><div class="join-code"><input id="room-code" aria-label="Code de la salle" placeholder="0000" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" value="${esc(code)}"><button class="secondary" data-action="join" ${!ready || busy ? "disabled" : ""}>Rejoindre</button></div></div></section>`;
+  return `${gameChoices()}<section class="panel home-join"><div><h2>Salle</h2></div><div class="join-form"><label>Pseudo<input id="player-name" autocomplete="nickname" maxlength="24" placeholder="Pseudo" value="${esc(playerName)}"></label><button data-action="create" ${!ready || busy ? "disabled" : ""}>Créer une salle <span>→</span></button><div class="join-code"><input id="room-code" aria-label="Code de la salle" placeholder="0000" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" value="${esc(code)}"><button class="secondary" data-action="join" ${!ready || busy ? "disabled" : ""}>Rejoindre</button></div></div></section><button class="admin-entry" data-action="admin" aria-label="Administration" title="Administration" ${!ready ? "disabled" : ""}>⚙</button>`;
 }
 function settings(): string {
   const s = state!;
   const disabled = !host() || busy || !ready;
-  return `<section class="panel"><h3>Options</h3><div class="settings">${game === "odin" ? `<label>Score limite<input type="number" id="max-score" min="5" max="50" value="${s.settings.maxScore}" ${disabled ? "disabled" : ""}></label><label>Couleurs<select id="color-count" ${disabled ? "disabled" : ""}>${[4, 5, 6].map((n) => `<option ${n === s.settings.colorCount ? "selected" : ""}>${n}</option>`).join("")}</select></label><p>${s.effectiveColorCount} couleurs · 9 cartes par joueur.</p>` : `<label>Temps par tour<select id="turn-seconds" ${disabled ? "disabled" : ""}>${[60, 120, 0].map((n) => `<option value="${n}" ${n === s.settings.turnSeconds ? "selected" : ""}>${n ? `${n} secondes` : "Sans limite"}</option>`).join("")}</select></label><p>À la fin du temps : pioche et fin du tour.</p>`}</div><details class="photos"><summary>Photos</summary><p>${host() ? "Photos communes à la salle." : "Photos choisies par l’hôte."}${game === "rummikub" ? " Par défaut, 10–13 reprennent les photos 1–4." : ""}</p><div class="photo-grid">${Array.from({ length: game === "odin" ? 9 : 13 }, (_, i) => `<label class="photo-picker"><img src="${esc(s.settings.photos[i + 1] || `/${(i % 9) + 1}.png`)}" alt="Photo ${i + 1}"><span>${i + 1} <small>Modifier</small></span><input type="file" data-photo="${i + 1}" accept="image/*" aria-label="Photo de la valeur ${i + 1}" ${disabled ? "disabled" : ""}></label>`).join("")}</div>${host() ? '<button class="text" data-action="reset-photos">Rétablir les photos d’origine</button>' : ""}</details></section>`;
+  return `<section class="panel"><h3>Options</h3><div class="settings">${game === "odin" ? `<label>Score limite<input type="number" id="max-score" min="5" max="50" value="${s.settings.maxScore}" ${disabled ? "disabled" : ""}></label><label>Couleurs<select id="color-count" ${disabled ? "disabled" : ""}>${[4, 5, 6].map((n) => `<option ${n === s.settings.colorCount ? "selected" : ""}>${n}</option>`).join("")}</select></label><p>${s.effectiveColorCount} couleurs · 9 cartes par joueur.</p>` : `<label>Temps par tour<select id="turn-seconds" ${disabled ? "disabled" : ""}>${[60, 120, 0].map((n) => `<option value="${n}" ${n === s.settings.turnSeconds ? "selected" : ""}>${n ? `${n} secondes` : "Sans limite"}</option>`).join("")}</select></label><p>À la fin du temps : pioche et fin du tour.</p>`}</div>${isAdmin ? `<button class="secondary" data-action="edit-photos" ${!ready || busy ? "disabled" : ""}>Modifier les photos</button>` : ""}</section>`;
 }
 function room(): string {
   const s = state!;
@@ -323,7 +369,7 @@ function playArea(): string {
             : '<div class="empty-table"><span aria-hidden="true">✧</span></div>'
         }</div><p class="table-note">${s.table.length === 1 ? "Cette carte est récupérée automatiquement si votre main n’est pas vidée." : s.table.length > 1 ? "Choisissez ici la carte à récupérer. Aucune reprise si vous videz votre main." : ""}</p>`
       : `<div class="rummi-board" data-drop-row="new"><div class="board-help">${s.players.find((p) => p.id === s.you?.id)?.opened ? "Sélectionnez des tuiles, puis une position + pour les déplacer. Le glisser-déposer fonctionne aussi." : "Première pose : au moins 30 points de votre chevalet. La table existante reste intacte."}</div>${b.map((m, row) => `<div class="meld ${validMeld(m) === null ? "invalid" : ""}" data-drop-row="${row}"><span class="meld-label">${row + 1}</span><div class="meld-tiles">${m.map((t, pos) => `${slot(row, pos)}${card(t, "board", !me || busy || !canTouch(t))}`).join("")}${slot(row, m.length)}</div>${me ? `<button class="text compact" data-reverse="${row}" ${busy ? "disabled" : ""} title="Inverser l’ordre">⇄</button>` : ""}<span class="meld-status">${validMeld(m) === null ? "À compléter" : `${validMeld(m)} pts ✓`}</span></div>`).join("") || '<div class="empty-table"><span>✧</span><p>Aucune combinaison sur la table.</p></div>'}</div>`
-  }</section><section class="panel rack-panel"><div class="rack-heading"><div><h2>${game === "odin" ? "Votre main" : "Votre chevalet"} <small>${game === "odin" ? s.hand.length : rack().length}</small></h2></div><div class="toolbar"><button class="text" data-action="sort">Trier par ${sort === "color" ? "valeur" : "couleur"}</button><button class="text" data-action="photos">${photosVisible ? "Masquer" : "Afficher"} les photos</button></div></div><div class="tile-row rack" data-drop-rack="true">${
+  }</section><section class="panel rack-panel"><div class="rack-heading"><div><h2>${game === "odin" ? "Votre main" : "Votre chevalet"} <small>${game === "odin" ? s.hand.length : rack().length}</small></h2></div><div class="toolbar">${isAdmin ? '<button class="text" data-action="edit-photos">Modifier les photos</button>' : ""}<button class="text" data-action="sort">Trier par ${sort === "color" ? "valeur" : "couleur"}</button><button class="text" data-action="photos">${photosVisible ? "Masquer" : "Afficher"} les photos</button></div></div><div class="tile-row rack" data-drop-rack="true">${
     sorted(game === "odin" ? s.hand : rack())
       .map((t) => card(t, "hand", !me || busy))
       .join("") || '<p class="muted">Chevalet vide. Validez le tour.</p>'
@@ -383,14 +429,7 @@ function render() {
       : null;
   const focusedTile = focused?.dataset.tile;
   const focusedSource = focused?.dataset.source;
-  const photoDetails =
-    document.querySelector<HTMLDetailsElement>("details.photos")?.open;
   content.innerHTML = `${state ? room() : home()}<nav class="bottom-nav"><button class="text" data-action="rules" aria-expanded="${rulesOpen}">${rulesOpen ? "Fermer les" : "Voir les"} règles</button><button class="text" data-action="ranking" aria-expanded="${rankingsOpen}">${rankingsOpen ? "Masquer le" : "Voir le"} classement ↗</button></nav>${rulesOpen ? rules() : ""}${rankingsOpen ? ranking() : ""}`;
-  if (photoDetails) {
-    const details =
-      document.querySelector<HTMLDetailsElement>("details.photos");
-    if (details) details.open = true;
-  }
   if (id) {
     const next = document.getElementById(id) as HTMLInputElement;
     next?.focus({ preventScroll: true });
@@ -544,29 +583,43 @@ async function loadRankings() {
     notify("Le classement est momentanément indisponible.");
   }
 }
-async function photoUpload(file: File, value: string) {
-  if (!file.type.startsWith("image/") || file.size > 20 * 1024 * 1024)
-    return notify("Choisissez une image de moins de 20 Mo.");
+async function unlockAdmin() {
+  if (adminPending || !ready) return;
+  const password =
+    document.querySelector<HTMLInputElement>("#admin-password")!.value;
+  const error = document.querySelector<HTMLElement>("#admin-error")!;
+  const button = document.querySelector<HTMLButtonElement>(
+    '#admin-form button[type="submit"]',
+  )!;
+  adminPending = true;
+  button.disabled = true;
+  error.textContent = "";
   try {
-    const bitmap = await createImageBitmap(file);
-    const canvas = document.createElement("canvas");
-    const scale = Math.min(1, 480 / Math.max(bitmap.width, bitmap.height));
-    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-    canvas
-      .getContext("2d")!
-      .drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    bitmap.close();
-    const url = canvas.toDataURL("image/jpeg", 0.7);
-    if (url.length > 120000)
-      return notify(
-        "Cette photo reste trop lourde. Essayez une image plus simple.",
-      );
-    await command("updateSettings", {
-      settings: { photos: { ...state?.settings.photos, [value]: url } },
+    const response = await fetch(`${serverUrl}/auth/admin`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${read("odin-site-access") || ""}`,
+      },
+      body: JSON.stringify({ password }),
+      signal: AbortSignal.timeout(15000),
     });
+    const result = await response.json();
+    if (!response.ok) {
+      error.textContent = result.message || "Accès refusé.";
+      return;
+    }
+    save("odin-admin-access", result.accessToken);
+    document.querySelector<HTMLDialogElement>("#admin-dialog")!.close();
+    document.querySelector<HTMLInputElement>("#admin-password")!.value = "";
+    openPhotosAfterAdmin = true;
+    socket.disconnect();
+    socket.connect();
   } catch {
-    notify("Impossible de lire cette image. Essayez un fichier JPEG ou PNG.");
+    error.textContent = "Connexion impossible.";
+  } finally {
+    adminPending = false;
+    button.disabled = false;
   }
 }
 async function bootstrapAccess() {
@@ -637,6 +690,18 @@ function finishConfirmation(value: boolean) {
 }
 async function action(name: string) {
   switch (name) {
+    case "admin":
+      if (!ready) return;
+      if (isAdmin) {
+        photoEditor.open(photoLibrary, 13);
+        return;
+      }
+      document.querySelector<HTMLElement>("#admin-error")!.textContent = "";
+      document.querySelector<HTMLDialogElement>("#admin-dialog")!.showModal();
+      return;
+    case "admin-close":
+      document.querySelector<HTMLDialogElement>("#admin-dialog")!.close();
+      return;
     case "retry-access":
       await bootstrapAccess();
       return;
@@ -749,8 +814,12 @@ async function action(name: string) {
     case "refresh-ranking":
       await loadRankings();
       return;
-    case "reset-photos":
-      await command("updateSettings", { settings: { photos: {} } });
+    case "edit-photos":
+      if (ready && isAdmin)
+        photoEditor.open(
+          state?.settings.photos ?? photoLibrary,
+          state && game === "odin" ? 9 : 13,
+        );
       return;
     case "leave":
       if (
@@ -783,6 +852,11 @@ async function action(name: string) {
   }
 }
 app.addEventListener("submit", (event) => {
+  if ((event.target as HTMLElement).id === "admin-form") {
+    event.preventDefault();
+    void unlockAdmin();
+    return;
+  }
   if ((event.target as HTMLElement).id === "access-form") {
     event.preventDefault();
     void unlockSite();
@@ -798,8 +872,6 @@ app.addEventListener("input", (event) => {
 });
 app.addEventListener("change", (event) => {
   const t = event.target as HTMLInputElement;
-  if (t.dataset.photo && t.files?.[0])
-    void photoUpload(t.files[0], t.dataset.photo);
   const keys: Record<string, string> = {
     "max-score": "maxScore",
     "color-count": "colorCount",

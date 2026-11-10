@@ -12,6 +12,7 @@ describe('Site access password', () => {
   afterEach(() => {
     delete process.env.DATA_DIR;
     delete process.env.SITE_PASSWORD;
+    delete process.env.ADMIN_PASSWORD;
     jest.restoreAllMocks();
     rmSync(directory, { recursive: true, force: true });
   });
@@ -60,6 +61,30 @@ describe('Site access password', () => {
     expect(
       auth.accepts(auth.login('test-only-password', 'test').accessToken),
     ).toBe(true);
+  });
+  it('requires a separate administrator password and keeps player tokens unprivileged', () => {
+    process.env.ADMIN_PASSWORD = 'owner-test-password';
+    const auth = new AuthService();
+    const player = auth.login('test-only-password', 'test').accessToken;
+    expect(auth.acceptsAdmin(player)).toBe(false);
+    expect(() => auth.loginAdmin('test-only-password', 'test')).toThrow(
+      'incorrect',
+    );
+    const admin = auth.loginAdmin('owner-test-password', 'test').accessToken;
+    expect(auth.acceptsAdmin(admin)).toBe(true);
+    expect(auth.accepts(admin)).toBe(false);
+    expect(new AuthService().acceptsAdmin(admin)).toBe(true);
+    process.env.ADMIN_PASSWORD = 'changed-owner-password';
+    expect(new AuthService().acceptsAdmin(admin)).toBe(false);
+  });
+  it('rejects sharing the player password with administration', () => {
+    process.env.ADMIN_PASSWORD = 'test-only-password';
+    expect(() => new AuthService()).toThrow('différent');
+  });
+  it('never enables administration when ADMIN_PASSWORD is unset', () => {
+    const auth = new AuthService();
+    expect(auth.acceptsAdmin(undefined)).toBe(false);
+    expect(() => auth.loginAdmin('anything', 'test')).toThrow('indisponible');
   });
   it('allows local development without a password when the variable is unset', () => {
     delete process.env.SITE_PASSWORD;

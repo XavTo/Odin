@@ -7,6 +7,7 @@ import {
   HttpCode,
   Post,
   Req,
+  UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { AuthService } from './auth.service';
@@ -29,5 +30,20 @@ export class AuthController {
   @Header('Cache-Control', 'no-store')
   login(@Body() body: { password?: unknown }, @Req() request: Request) {
     return this.auth.login(body?.password, request.ip ?? 'unknown');
+  }
+  @Post('admin')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  admin(
+    @Body() body: { password?: unknown },
+    @Req() request: Request,
+    @Headers('authorization') authorization?: string,
+  ) {
+    const token = authorization?.startsWith('Bearer ')
+      ? authorization.slice(7)
+      : undefined;
+    if (!this.auth.accepts(token))
+      throw new UnauthorizedException('Connexion nécessaire.');
+    return this.auth.loginAdmin(body?.password, request.ip ?? 'unknown');
   }
 }

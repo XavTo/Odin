@@ -10,6 +10,7 @@ import { join } from 'path';
 import { GameRoom, Profile } from './game.types';
 interface Snapshot {
   version: number;
+  photos?: Record<string, string>;
   profiles: Profile[];
   rooms: Array<
     Omit<GameRoom, 'state'> & {
@@ -23,10 +24,14 @@ export class GameStore {
     process.env.DATA_DIR ||
     process.env.RAILWAY_VOLUME_MOUNT_PATH ||
     join(process.cwd(), 'data');
-  load(): { profiles: Profile[]; rooms: GameRoom[] } {
+  load(): {
+    profiles: Profile[];
+    rooms: GameRoom[];
+    photos: Record<string, string>;
+  } {
     mkdirSync(this.directory, { recursive: true });
     const path = join(this.directory, 'games.json');
-    if (!existsSync(path)) return { profiles: [], rooms: [] };
+    if (!existsSync(path)) return { profiles: [], rooms: [], photos: {} };
     const data = JSON.parse(readFileSync(path, 'utf8')) as Snapshot;
     if (
       data.version !== 1 ||
@@ -39,6 +44,7 @@ export class GameStore {
     const now = Date.now();
     return {
       profiles: data.profiles,
+      photos: data.photos ?? {},
       rooms: data.rooms
         .filter((r) => now - r.updatedAt < 7 * 86400000)
         .map((r) => ({
@@ -54,10 +60,15 @@ export class GameStore {
         })),
     };
   }
-  save(rooms: Iterable<GameRoom>, profiles: Iterable<Profile>): void {
+  save(
+    rooms: Iterable<GameRoom>,
+    profiles: Iterable<Profile>,
+    photos: Record<string, string> = {},
+  ): void {
     const path = join(this.directory, 'games.json');
     const data: Snapshot = {
       version: 1,
+      photos,
       profiles: [...profiles],
       rooms: [...rooms].map((r) => ({
         ...r,

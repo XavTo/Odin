@@ -10,6 +10,8 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const directory = mkdtempSync(join(tmpdir(), 'odin-wire-'));
 const port = 3317;
 const sitePassword = 'integration-test-password';
+const ownerPassword = 'integration-owner-password';
+let adminToken;
 let accessToken;
 let server;
 const clients = [];
@@ -21,6 +23,7 @@ async function start() {
       PORT: String(port),
       DATA_DIR: directory,
       SITE_PASSWORD: sitePassword,
+      ADMIN_PASSWORD: ownerPassword,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -59,10 +62,15 @@ async function stop() {
     await exited;
   }
 }
-async function connect(token) {
+async function connect(token, administrator = false) {
   const c = {
     socket: io(`http://127.0.0.1:${port}`, {
-      auth: { token, accessToken },
+      auth: {
+        token,
+        accessToken,
+        adminToken: administrator ? adminToken : undefined,
+        isAdmin: true,
+      },
       reconnection: false,
     }),
     state: null,
@@ -122,13 +130,41 @@ try {
     body: JSON.stringify({ password: sitePassword }),
   });
   accessToken = (await login.json()).accessToken;
-  const a = await connect(),
+  const forbiddenAdmin = await fetch(`http://127.0.0.1:${port}/auth/admin`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ password: sitePassword }),
+  });
+  assert.equal(forbiddenAdmin.status, 401);
+  const adminLogin = await fetch(`http://127.0.0.1:${port}/auth/admin`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ password: ownerPassword }),
+  });
+  assert.equal(adminLogin.status, 200);
+  adminToken = (await adminLogin.json()).accessToken;
+  const a = await connect(undefined, true),
     b = await connect(),
     outsider = await connect();
+  assert.equal(a.session.isAdmin, true);
+  assert.equal(b.session.isAdmin, false);
+  assert.equal((await cmd(b, 'getPhotos')).ok, false);
+  const photos = {
+    1: 'data:image/png;base64,YQ==',
+    13: 'data:image/jpeg;base64,Yg==',
+  };
+  assert.equal((await cmd(a, 'savePhotos', { photos })).ok, true);
   assert.deepEqual(
     await cmd(a, 'createRoom', { name: 'Alice', game: 'odin' }),
     { ok: true },
   );
+  assert.deepEqual(a.state.settings.photos, photos);
   const roomId = a.state.roomId;
   assert.match(roomId, /^\d{4}$/);
   assert.equal((await cmd(b, 'joinRoom', { roomId, name: 'Bob' })).ok, true);
@@ -151,11 +187,15 @@ try {
     (await cmd(active, 'playCards', { cardIds: [active.state.hand[0].id] })).ok,
     true,
   );
+  assert.equal((await cmd(b, 'savePhotos', { photos })).ok, false);
+  assert.equal((await cmd(a, 'savePhotos', { photos })).ok, true);
+  await cmd(b, 'sync');
+  assert.deepEqual(b.state.settings.photos, photos);
   await cmd(a, 'sync');
   const before = structuredClone(a.state),
     token = a.session.token;
   a.socket.disconnect();
-  const restored = await connect(token);
+  const restored = await connect(token, true);
   await cmd(restored, 'sync');
   assert.equal(restored.session.playerId, a.session.playerId);
   assert.equal(restored.state.roomId, roomId);
@@ -170,11 +210,12 @@ try {
   clients.forEach((c) => c.socket.disconnect());
   await stop();
   await start();
-  const resumed = await connect(token);
+  const resumed = await connect(token, true);
   await cmd(resumed, 'sync');
   assert.deepEqual(resumed.state.hand, gameBeforeRestart.hand);
   assert.deepEqual(resumed.state.table, gameBeforeRestart.table);
   assert.equal(resumed.state.roomId, roomId);
+  assert.deepEqual((await cmd(resumed, 'getPhotos')).photos, photos);
   await cmd(resumed, 'leaveRoom');
   const r1 = await connect(),
     r2 = await connect();
@@ -185,6 +226,11 @@ try {
   assert.equal(
     (await cmd(r2, 'joinRoom', { roomId: r1.state.roomId, name: 'R2' })).ok,
     true,
+  );
+  assert.equal((await cmd(r1, 'savePhotos', { photos: {} })).ok, false);
+  assert.equal(
+    (await cmd(r1, 'updateSettings', { settings: { photos: {} } })).ok,
+    false,
   );
   assert.equal((await cmd(r1, 'startGame')).ok, true);
   await cmd(r2, 'sync');
@@ -206,7 +252,7 @@ try {
   assert.equal(turn.state.deckCount, 77);
   assert.equal((await cmd(turn, 'drawTile')).ok, false);
   console.log(
-    'PASS: site password, refused unauthenticated sockets, four-digit rooms, two-player Odin/Rummikub, authorization, exact refresh recovery, host preservation, process restart, rejected-action atomicity, draw ends turn.',
+    'PASS: site/admin password separation, forbidden guest/host photo edits, shared photos across restart, site password, refused unauthenticated sockets, four-digit rooms, two-player Odin/Rummikub, authorization, exact refresh recovery, host preservation, process restart, rejected-action atomicity, draw ends turn.',
   );
 } finally {
   clients.forEach((c) => c.socket.disconnect());

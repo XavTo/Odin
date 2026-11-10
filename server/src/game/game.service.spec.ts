@@ -39,6 +39,63 @@ describe('Persistent multiplayer games', () => {
     }
     expect(new Set(codes).size).toBe(codes.length);
   });
+  it('remembers the shared photo library across games, players and server restarts', () => {
+    service.connect('a');
+    const photos = {
+      '1': 'data:image/png;base64,YQ==',
+      '13': 'data:image/jpeg;base64,Yg==',
+    };
+    service.savePhotos(photos);
+    const odin = service.createRoom('Alice', 'a');
+    expect(odin.settings.photos).toEqual(photos);
+    service.leaveRoomBySocket('a');
+    const restarted = new GameService(new GameStore());
+    restarted.connect('b');
+    const rummi = restarted.createRoom('Bob', 'b', 'rummikub');
+    expect(rummi.settings.photos).toEqual(photos);
+    const copy = restarted.getPhotos();
+    delete copy['1'];
+    expect(restarted.getPhotos()).toEqual(photos);
+    restarted.savePhotos({});
+    expect(restarted.getPhotos()).toEqual({});
+    expect(rummi.settings.photos).toEqual({});
+  });
+  it('updates every room visually without changing hands or turns', () => {
+    const r = room('rummikub');
+    const before = {
+      hand: [...r.players[0].hand],
+      current: r.state.currentPlayerId,
+      deadline: r.state.deadline,
+    };
+    service.connect('c');
+    const second = service.createRoom('Claire', 'c');
+    service.savePhotos({ '2': 'data:image/png;base64,YQ==' });
+    expect(r.settings.photos).toEqual(second.settings.photos);
+    expect(r.settings.photos['2']).toBe('data:image/png;base64,YQ==');
+    expect(r.players[0].hand).toEqual(before.hand);
+    expect(r.state.currentPlayerId).toBe(before.current);
+    expect(r.state.deadline).toBe(before.deadline);
+    expect(() =>
+      service.updateSettings(second.id, 'c', {
+        photos: { '3': 'data:image/png;base64,Yg==' },
+      }),
+    ).toThrow('administrateur');
+  });
+  it('rejects invalid photo imports atomically', () => {
+    service.savePhotos({ '1': 'data:image/png;base64,YQ==' });
+    expect(() =>
+      service.savePhotos({ '2': 'data:image/svg+xml;base64,Yg==' }),
+    ).toThrow();
+    expect(() =>
+      service.savePhotos({ '14': 'data:image/png;base64,Yg==' }),
+    ).toThrow();
+    expect(() =>
+      service.savePhotos({
+        '2': 'data:image/png;base64,' + 'A'.repeat(120001),
+      }),
+    ).toThrow();
+    expect(service.getPhotos()).toEqual({ '1': 'data:image/png;base64,YQ==' });
+  });
   it('restores the exact identity, hand, turn and room after a refresh', () => {
     const a = service.connect('a');
     service.connect('b');
