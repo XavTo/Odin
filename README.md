@@ -1,37 +1,82 @@
-# Odin (jeu en ligne)
+# À toi de jouer — Odin & Rummikub
 
-Jeu de défausse en temps réel (2 à 6 joueurs) basé sur les règles de `regle.txt`.
+Jeux multijoueurs privés en français, avec photos personnalisables et classements Elo séparés. Client Vite/TypeScript et serveur NestJS/Socket.IO.
 
-## Prerequis
-- Node.js 18+
-- npm
+## Démarrer
 
-## Demarrage rapide
+Node.js 22.12+ (ou Node 24) et npm.
 
-### Serveur (NestJS + Socket.IO)
-```bash
+```sh
 cd server
-npm install
+npm ci
 npm run start:dev
 ```
 
-### Client (Vite + TypeScript)
-```bash
+Dans un second terminal :
+
+```sh
 cd client
-npm install
+npm ci
 npm run dev
 ```
 
-Ouvrir `http://localhost:5173` et se connecter au serveur `http://localhost:3000`.
+Ouvrir http://localhost:5173. Le client utilise `VITE_SERVER_URL` (http://localhost:3000 en développement ; origine courante sinon). Copier `client/.env.example` en `.env` pour le configurer.
 
-## Regles implementees (resume)
-- 54 cartes (1 a 9, 6 couleurs), 9 cartes par joueur.
-- Debut d un tour: le joueur pose 1 carte.
-- Ensuite: jouer le meme nombre de cartes ou +1, et plus fort que la combinaison precedente.
-- Combinaison valide: meme couleur ou meme valeur.
-- Valeur: chiffres tries par ordre decroissant (ex: 2 et 8 -> 82).
-- Apres avoir joue: recuperer 1 carte de la table precedente.
-- Un tour finit quand tout le monde passe (sauf le dernier joueur a avoir joue).
-- Fin de manche: main vide en jouant, ou debut de tour avec toutes les cartes meme couleur ou meme valeur.
-- Scoring: 1 point par carte restante. Fin de partie a 15 points.
-# Odin
+Choisir le jeu, entrer son pseudo, créer une salle puis copier l’invitation. Le partenaire peut rejoindre depuis le lien ou le code. Deux navigateurs/profils distincts sont nécessaires pour simuler deux personnes : ouvrir deux onglets du même profil transfère la session au dernier onglet.
+
+## Connexion et sauvegarde
+
+Une clé de session aléatoire est conservée dans le stockage local du navigateur ; seul son hash est sauvegardé côté serveur. Ne partagez pas cette clé. Un refresh, une coupure réseau ou une fermeture d’onglet ne fait pas quitter la salle. La reconnexion restitue la main, les scores et le tour. Le brouillon Rummikub est conservé par onglet dans `sessionStorage` et restauré seulement si la table et la main correspondent toujours.
+
+Les salles, profils, photos et classements sont sauvegardés après chaque action par remplacement atomique de `games.json`, dans `DATA_DIR`, sinon `RAILWAY_VOLUME_MOUNT_PATH`, sinon `server/data`. Une sauvegarde illisible bloque le démarrage au lieu de l’écraser. Une salle inactive est conservée sept jours. Les profils et classements restent conservés. Faites des sauvegardes du volume ; le fichier contient les mains privées et doit rester hors Git et hors des fichiers web publics.
+
+Le rôle d’hôte est conservé pendant un refresh. Après 30 secondes de déconnexion de l’hôte, un autre joueur peut reprendre ce rôle explicitement. L’hôte peut retirer un joueur déconnecté (abandon). Quitter volontairement une partie en cours est également un abandon. Quand tout le monde est déconnecté, le chronomètre Rummikub est suspendu. À la reconnexion le temps restant reprend. Si un seul joueur se déconnecte, le chronomètre continue pour ne pas bloquer les autres.
+
+## Gameplay
+
+### Odin (2 à 6)
+
+9 cartes par personne. Une couleur supplémentaire est activée si nécessaire pour disposer d’assez de cartes. À deux, deux couleurs sont retirées avec un minimum de quatre. Même couleur ou valeur ; même nombre de cartes que la combinaison précédente, ou une de plus ; valeur strictement supérieure. Après une pose, une carte précédente est reprise sauf si la main est vidée. Un passage n’exclut pas du pli. Tous les autres passages relancent avec le dernier joueur à avoir posé. Une main monochrome ou de même valeur à l’ouverture d’un pli termine automatiquement la manche.
+
+Les résultats de manche sont affichés avant que l’hôte lance la suivante. Le plus petit score gagne dès qu’une personne atteint la limite (15 par défaut).
+
+### Rummikub (2 à 4)
+
+106 tuiles, 14 par joueur. Groupes de 3 ou 4 couleurs différentes ; suites ordonnées de 3 à 13 tuiles de même couleur ; pas de 13–1. Première pose d’au moins 30 points venant exclusivement du chevalet ; manipulation de la table à partir du tour suivant. Les jokers prennent la valeur de leur position et doivent rester sur la table lorsqu’ils sont libérés.
+
+Sélectionner les tuiles puis cliquer sur **Nouvelle combinaison** ou un **+** à une position d’un groupe. Le glisser-déposer est également disponible. On peut réordonner, scinder et fusionner librement après l’ouverture. Pour reprendre une tuile jouée dans ce brouillon, la sélectionner puis cliquer sur la zone vide du chevalet (ou la faire glisser). Les anciennes tuiles de table ne peuvent jamais être reprises. **Annuler** et **Tout rétablir** n’affectent pas le serveur. **Valider le tour** soumet la table entière : le serveur vérifie les combinaisons, l’origine et l’unicité des tuiles et la première pose avant de modifier quoi que ce soit. Une action refusée conserve le brouillon.
+
+Piocher termine immédiatement le tour. Chronomètre configurable : 60 secondes, 120 secondes ou sans limite. À expiration, le brouillon non validé est abandonné, le serveur pioche une tuile et passe le tour. En cas de pioche vide, une ronde complète de passages termine la partie : le plus petit total en main gagne. Les jokers valent 30 points en main. Le gagnant reçoit la somme des pénalités, ou des différences si la partie est bloquée. Les ex æquo se partagent les gains.
+
+Référence : [règles classiques officielles](https://rummikub.com/rules/). Les mécaniques classiques sont implémentées ; les variantes internes, monnaies et modes commerciaux de rummikub-apps.com ne sont pas reproduits.
+
+### Photos et classement
+
+Dans la salle, l’hôte peut choisir une photo pour chaque valeur (1–9 ou 1–13). Compression locale en JPEG, sans envoi du fichier original. Les images sont partagées et conservées dans la salle. Les valeurs 10–13 réutilisent les images 1–4 tant qu’aucune photo spécifique n’est choisie. Chaque joueur peut masquer les photos pour privilégier la lisibilité.
+
+Classement Elo par jeu (1000 au départ, facteur 32, moyenne des confrontations en multijoueur), parties jouées, victoires et ex æquo. Une partie terminée est comptée une seule fois ; un abandon avant toute action jouée ne fait pas gagner d’Elo. Le profil dépend de ce navigateur, sans compte ni synchronisation entre appareils. Effacer le stockage local crée un nouveau profil. Ce classement convient à un cercle d’amis, pas à une compétition avec identités vérifiées.
+
+## Railway existant
+
+Le projet **Odin Nono** possède deux services GitHub : `Odin-Client` (`/client`) et `Odin-Server` (`/server`). Conserver cette structure.
+
+1. Monter un **volume persistant** sur `Odin-Server` à `/data`. Le serveur détecte `RAILWAY_VOLUME_MOUNT_PATH` automatiquement, ou définir `DATA_DIR=/data`.
+2. Conserver **une seule instance serveur** : la sauvegarde est conçue pour un processus. Plusieurs instances demanderaient une base partagée et un adaptateur Socket.IO.
+3. Client : `VITE_SERVER_URL=https://odin-server-production.up.railway.app` (variable de build). Ne pas déployer le `.env` local.
+4. Serveur : `PORT=3000`, build `npm run build`, démarrage `npm run start:prod`, healthcheck `/health`. Le fichier `server/railway.json` fournit les commandes.
+5. La veille Railway peut rester activée avec un volume : au réveil, les parties sont rechargées ; une première connexion peut demander quelques secondes. Désactiver la veille si un démarrage immédiat est souhaité.
+6. Déployer les deux services depuis le même commit. L’ancien client n’utilise pas le nouveau protocole de session ; inviter les joueurs à rafraîchir la page après la mise à jour.
+
+Le correctif de refresh fonctionne tant que le processus vit ; **sans volume Railway, les parties et classements ne survivent pas aux redéploiements**. Le déploiement remplace l’ancien serveur qui ne sauvegardait aucune partie : faire la mise à jour hors partie active.
+
+## Vérifications
+
+```sh
+cd server
+npm test -- --runInBand
+npm run build
+cd ../client
+npm run build
+```
+
+`work` et les fichiers de données ne font pas partie du déploiement. Les tests ciblent la reprise, les règles, l’isolation des mains, les délais et le comptage des classements.

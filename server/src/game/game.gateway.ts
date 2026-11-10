@@ -4,182 +4,203 @@ import {
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
+  OnGatewayConnection,
+  OnGatewayDisconnect,
+  OnGatewayInit,
 } from '@nestjs/websockets';
+import { OnModuleDestroy } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { GameService } from './game.service';
-import { GameRoom } from './game.types';
-
-interface CreateRoomPayload {
-  name: string;
+import { GameRoom, GameSettings } from './game.types';
+interface Payload {
+  roomId?: unknown;
+  name?: unknown;
+  game?: unknown;
+  cardIds?: unknown;
+  takeCardId?: unknown;
+  revision?: unknown;
+  melds?: unknown;
+  playerId?: unknown;
+  settings?: Partial<GameSettings>;
 }
-
-interface JoinRoomPayload {
-  roomId: string;
-  name: string;
-}
-
-interface RoomPayload {
-  roomId: string;
-}
-
-interface PlayCardsPayload {
-  roomId: string;
-  cardIds: string[];
-  takeCardId?: string;
-}
-
-interface UpdateSettingsPayload {
-  roomId: string;
-  maxScore?: number;
-  colorCount?: number;
-}
-
-@WebSocketGateway({
-  cors: {
-    origin: '*',
-  },
-})
-export class GameGateway {
+@WebSocketGateway({ cors: { origin: '*' }, maxHttpBufferSize: 2_000_000 })
+export class GameGateway
+  implements
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnGatewayInit,
+    OnModuleDestroy
+{
   @WebSocketServer() server: Server;
-
+  private timer?: ReturnType<typeof setInterval>;
+  private rates = new Map<string, { time: number; count: number }>();
   constructor(private readonly gameService: GameService) {}
-
-  handleDisconnect(client: Socket): void {
-    const room = this.gameService.leaveRoomBySocket(client.id);
+  afterInit(): void {
+    this.timer = setInterval(() => {
+      for (const room of this.gameService.tick()) this.emitState(room);
+    }, 1000);
+  }
+  onModuleDestroy(): void {
+    if (this.timer) clearInterval(this.timer);
+  }
+  handleConnection(client: Socket): void {
+    const { profile, token, room, previousSocket, reset } =
+      this.gameService.connect(client.id, client.handshake.auth?.token);
+    if (previousSocket) {
+      const old = this.server.sockets.sockets.get(previousSocket);
+      old?.emit('sessionReplaced');
+      old?.disconnect(true);
+    }
+    client.emit('session', {
+      playerId: profile.id,
+      token,
+      name: profile.name,
+      reset,
+    });
     if (room) {
+      void client.join(room.id);
       this.emitState(room);
     }
   }
-
+  handleDisconnect(client: Socket): void {
+    this.rates.delete(client.id);
+    const room = this.gameService.disconnect(client.id);
+    if (room) this.emitState(room);
+  }
   @SubscribeMessage('createRoom')
-  handleCreateRoom(
-    @MessageBody() payload: CreateRoomPayload,
-    @ConnectedSocket() client: Socket,
-  ): void {
-    try {
-      const { room, player } = this.gameService.createRoom(
-        payload?.name ?? '',
-        client.id,
-      );
-      client.join(room.id);
-      client.emit('roomJoined', {
-        roomId: room.id,
-        playerId: player.id,
-        hostId: room.hostId,
-      });
-      this.emitState(room);
-    } catch (error) {
-      this.emitError(client, error);
-    }
+  create(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
+    return this.run(c, () =>
+      this.gameService.createRoom(p?.name, c.id, p?.game),
+    );
   }
-
   @SubscribeMessage('joinRoom')
-  handleJoinRoom(
-    @MessageBody() payload: JoinRoomPayload,
-    @ConnectedSocket() client: Socket,
-  ): void {
-    try {
-      const { room, player } = this.gameService.joinRoom(
-        payload?.roomId?.toUpperCase() ?? '',
-        payload?.name ?? '',
-        client.id,
-      );
-      client.join(room.id);
-      client.emit('roomJoined', {
-        roomId: room.id,
-        playerId: player.id,
-        hostId: room.hostId,
-      });
-      this.emitState(room);
-    } catch (error) {
-      this.emitError(client, error);
-    }
+  join(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
+    return this.run(c, () =>
+      this.gameService.joinRoom(p?.roomId, p?.name, c.id),
+    );
   }
-
   @SubscribeMessage('startGame')
-  handleStartGame(
-    @MessageBody() payload: RoomPayload,
-    @ConnectedSocket() client: Socket,
-  ): void {
-    try {
-      const room = this.gameService.startGame(payload.roomId, client.id);
-      this.emitState(room);
-    } catch (error) {
-      this.emitError(client, error);
-    }
+  start(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
+    return this.run(c, () => this.gameService.startGame(p?.roomId, c.id));
   }
-
+  @SubscribeMessage('nextRound')
+  nextRound(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
+    return this.run(c, () => this.gameService.nextRound(p?.roomId, c.id));
+  }
   @SubscribeMessage('playCards')
-  handlePlayCards(
-    @MessageBody() payload: PlayCardsPayload,
-    @ConnectedSocket() client: Socket,
-  ): void {
-    try {
-      const room = this.gameService.playCards(
-        payload.roomId,
-        client.id,
-        payload.cardIds ?? [],
-        payload.takeCardId,
-      );
-      this.emitState(room);
-    } catch (error) {
-      this.emitError(client, error);
-    }
+  play(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
+    return this.run(c, () =>
+      this.gameService.playCards(
+        p?.roomId,
+        c.id,
+        p?.cardIds,
+        p?.takeCardId,
+        p?.revision,
+      ),
+    );
   }
-
   @SubscribeMessage('pass')
-  handlePass(
-    @MessageBody() payload: RoomPayload,
-    @ConnectedSocket() client: Socket,
-  ): void {
-    try {
-      const room = this.gameService.pass(payload.roomId, client.id);
-      this.emitState(room);
-    } catch (error) {
-      this.emitError(client, error);
-    }
+  pass(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
+    return this.run(c, () =>
+      this.gameService.pass(p?.roomId, c.id, p?.revision),
+    );
   }
-
+  @SubscribeMessage('submitMelds')
+  melds(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
+    return this.run(c, () =>
+      this.gameService.submitMelds(p?.roomId, c.id, p?.melds, p?.revision),
+    );
+  }
+  @SubscribeMessage('drawTile')
+  draw(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
+    return this.run(c, () =>
+      this.gameService.draw(p?.roomId, c.id, p?.revision),
+    );
+  }
   @SubscribeMessage('updateSettings')
-  handleUpdateSettings(
-    @MessageBody() payload: UpdateSettingsPayload,
-    @ConnectedSocket() client: Socket,
-  ): void {
+  settings(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
+    return this.run(c, () =>
+      this.gameService.updateSettings(p?.roomId, c.id, p?.settings ?? {}),
+    );
+  }
+  @SubscribeMessage('claimHost')
+  claim(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
+    return this.run(c, () => this.gameService.claimHost(p?.roomId, c.id));
+  }
+  @SubscribeMessage('removeOffline')
+  remove(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
+    return this.run(c, () =>
+      this.gameService.removeOffline(p?.roomId, c.id, p?.playerId),
+    );
+  }
+  @SubscribeMessage('leaveRoom')
+  leave(@ConnectedSocket() c: Socket) {
+    const old = this.gameService.getRoomBySocket(c.id);
+    const result = this.run(c, () => this.gameService.leaveRoomBySocket(c.id));
+    if (result.ok) {
+      if (old) void c.leave(old.id);
+      c.emit('roomLeft');
+    }
+    return result;
+  }
+  @SubscribeMessage('getLeaderboard')
+  leaderboard(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
     try {
-      const room = this.gameService.updateSettings(payload.roomId, client.id, {
-        maxScore: payload.maxScore,
-        colorCount: payload.colorCount,
-      });
-      this.emitState(room);
-    } catch (error) {
-      this.emitError(client, error);
+      this.limit(c);
+      return { ok: true, rows: this.gameService.leaderboard(p?.game) };
+    } catch (e) {
+      return this.error(e);
     }
   }
-
-  @SubscribeMessage('leaveRoom')
-  handleLeaveRoom(@ConnectedSocket() client: Socket): void {
+  @SubscribeMessage('sync')
+  sync(@ConnectedSocket() c: Socket) {
+    const room = this.gameService.getRoomBySocket(c.id);
+    if (room) this.emitState(room);
+    return { ok: true };
+  }
+  private run(c: Socket, action: () => GameRoom | null) {
     try {
-      const room = this.gameService.leaveRoomBySocket(client.id);
+      this.limit(c);
+      const room = action();
       if (room) {
-        client.leave(room.id);
+        void c.join(room.id);
         this.emitState(room);
       }
-      client.emit('roomLeft');
-    } catch (error) {
-      this.emitError(client, error);
+      return { ok: true };
+    } catch (e) {
+      const room = this.gameService.getRoomBySocket(c.id);
+      if (room)
+        c.emit(
+          'state',
+          this.gameService.buildStateForPlayer(
+            room,
+            room.players.find((p) => p.socketId === c.id)!.id,
+          ),
+        );
+      return this.error(e);
     }
   }
-
+  private limit(c: Socket): void {
+    const now = Date.now();
+    let rate = this.rates.get(c.id);
+    if (!rate || now - rate.time > 1000) {
+      rate = { time: now, count: 0 };
+      this.rates.set(c.id, rate);
+    }
+    if (++rate.count > 20)
+      throw new Error('Trop d’actions. Patientez un instant.');
+  }
+  private error(e: unknown) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : 'Erreur du serveur.',
+    };
+  }
   private emitState(room: GameRoom): void {
-    for (const player of room.players) {
-      const state = this.gameService.buildStateForPlayer(room, player.id);
-      this.server.to(player.socketId).emit('state', state);
-    }
-  }
-
-  private emitError(client: Socket, error: unknown): void {
-    const message =
-      error instanceof Error ? error.message : 'Erreur inconnue.';
-    client.emit('serverError', { message });
+    for (const p of room.players)
+      if (p.connected && !p.forfeited)
+        this.server
+          .to(p.socketId)
+          .emit('state', this.gameService.buildStateForPlayer(room, p.id));
   }
 }

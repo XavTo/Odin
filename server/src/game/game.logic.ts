@@ -68,7 +68,10 @@ export function hasMonoColorOrValue(hand: Card[]): boolean {
   return sameColor || sameValue;
 }
 
-export function removeCardsFromHand(hand: Card[], cardIds: string[]): {
+export function removeCardsFromHand(
+  hand: Card[],
+  cardIds: string[],
+): {
   nextHand: Card[];
   removed: Card[];
 } {
@@ -96,7 +99,10 @@ export function getNextPlayerId(players: Player[], currentId: string): string {
   return players[nextIndex].id;
 }
 
-export function dealHand(deck: Card[], count: number): { hand: Card[]; rest: Card[] } {
+export function dealHand(
+  deck: Card[],
+  count: number,
+): { hand: Card[]; rest: Card[] } {
   const hand = deck.slice(0, count);
   const rest = deck.slice(count);
   return { hand, rest };
