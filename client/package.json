@@ -13,6 +13,7 @@
     "vite": "^7.2.4"
   },
   "dependencies": {
+    "heic-to": "^1.6.7",
     "socket.io-client": "^4.8.3"
   }
 }

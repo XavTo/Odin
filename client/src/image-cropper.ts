@@ -1,14 +1,80 @@
 const MAX_PHOTO_BYTES = 120000;
 
+type DecodedImage = {
+  source: CanvasImageSource;
+  width: number;
+  height: number;
+  close: () => void;
+};
+
+async function decodeNative(blob: Blob): Promise<DecodedImage> {
+  if (typeof createImageBitmap === "function") {
+    try {
+      const bitmap = await createImageBitmap(blob);
+      return {
+        source: bitmap,
+        width: bitmap.width,
+        height: bitmap.height,
+        close: () => bitmap.close(),
+      };
+    } catch {
+      /* Some browsers display images they cannot decode as bitmaps. */
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  try {
+    const image = new Image();
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error("Image illisible"));
+      image.src = url;
+    });
+    if (!image.naturalWidth || !image.naturalHeight)
+      throw new Error("Image vide");
+    return {
+      source: image,
+      width: image.naturalWidth,
+      height: image.naturalHeight,
+      close: () => URL.revokeObjectURL(url),
+    };
+  } catch (error) {
+    URL.revokeObjectURL(url);
+    throw error;
+  }
+}
+
+async function decodePhoto(file: File): Promise<DecodedImage> {
+  try {
+    return await decodeNative(file);
+  } catch {
+    try {
+      // Loaded only when the browser cannot decode the file itself.
+      const { heicTo } = await import("heic-to/csp");
+      const jpeg = await heicTo({
+        blob: file,
+        type: "image/jpeg",
+        quality: 0.92,
+      });
+      return await decodeNative(jpeg);
+    } catch {
+      /* Report the same actionable error for unreadable HEIC files. */
+    }
+    throw new Error(
+      `Impossible de lire « ${file.name} ». Essayez une autre image (JPEG, PNG, WebP ou HEIC).`,
+    );
+  }
+}
+
 /** The output is the portion shown in the preview, at the target aspect ratio. */
 export async function cropImage(
   file: File,
   background: boolean,
   label: string,
 ): Promise<string | null> {
-  if (!file.type.startsWith("image/") || file.size > 20 * 1024 * 1024)
-    throw new Error("Choisissez des images de moins de 20 Mo.");
-  const bitmap = await createImageBitmap(file);
+  if (file.size > 20 * 1024 * 1024)
+    throw new Error("Choisissez une image de moins de 20 Mo.");
+  if (!file.size) throw new Error("Ce fichier est vide.");
+  const bitmap = await decodePhoto(file);
   const dialog = document.createElement("dialog");
   dialog.className = "image-cropper";
   dialog.setAttribute("aria-label", "Recadrer la photo");
@@ -44,7 +110,7 @@ export async function cropImage(
     const { left, top, width, height } = bounds();
     ctx!.clearRect(0, 0, canvas.width, canvas.height);
     ctx!.drawImage(
-      bitmap,
+      bitmap.source,
       left,
       top,
       width,
