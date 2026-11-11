@@ -1744,3 +1744,27 @@ body.in-game .odin-table .empty-table > span { font-size: 1.6rem; }
   body.in-game .odin-card .tile-number { font-size: 1.2rem; min-width: 24px; }
   body.in-game .odin-card .tile-color { font-size: .48rem; }
 }
+
+/* Keep room controls readable over every custom background. */
+.room-actions .room-control {
+  color: #124f62;
+  background: #fffdf8;
+  border: 1px solid #669aa7;
+  border-radius: 9px;
+  min-height: 40px;
+  padding: 8px 12px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px #123f501f;
+}
+.room-actions .room-control:hover:not(:disabled) { background: #d7f0f1; color: #0b4354; border-color: #367b89; }
+@media (max-width: 600px) {
+  .room-actions { gap: 6px; }
+  .room-actions .room-control { min-height: 38px; font-size: .72rem; padding: 8px 9px; }
+}
+.room-bar > div:first-child {
+  background: #fffdf8ed;
+  border: 1px solid #a3c6ca;
+  border-radius: 10px;
+  padding: 7px 10px;
+  box-shadow: 0 2px 8px #123f5015;
+}
