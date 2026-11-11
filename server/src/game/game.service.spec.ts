@@ -65,12 +65,14 @@ describe('Persistent multiplayer games', () => {
       '1': 'data:image/png;base64,YQ==',
       r1: 'data:image/webp;base64,Yg==',
       r13: 'data:image/jpeg;base64,Yw==',
+      c13: 'data:image/webp;base64,ZA==',
       background: 'data:image/webp;base64,ZA==',
     };
     service.savePhotos(photos);
     const restarted = new GameService(new GameStore());
     expect(restarted.getPhotos()).toEqual(photos);
     expect(() => restarted.savePhotos({ r14: photos.r1 })).toThrow();
+    expect(() => restarted.savePhotos({ c14: photos.r1 })).toThrow();
     expect(() => restarted.savePhotos({ background: 'data:image/webp;base64,' + 'A'.repeat(500001) })).toThrow();
     expect(restarted.getPhotos()).toEqual(photos);
   });

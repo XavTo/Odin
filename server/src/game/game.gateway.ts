@@ -25,7 +25,7 @@ interface Payload {
   settings?: Partial<GameSettings>;
   photos?: unknown;
 }
-@WebSocketGateway({ cors: { origin: '*' }, maxHttpBufferSize: 4_000_000 })
+@WebSocketGateway({ cors: { origin: '*' }, maxHttpBufferSize: 6_000_000 })
 export class GameGateway
   implements
     OnGatewayConnection,

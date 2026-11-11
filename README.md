@@ -94,3 +94,5 @@ npm run build
 ```
 
 `work` et les fichiers de données ne font pas partie du déploiement. Les tests ciblent la reprise, les règles, l’isolation des mains, les délais et le comptage des classements.
+
+Dans l’éditeur Rummikub, **Détourer les portraits** prépare les images avec un modèle exécuté dans le navigateur. Les photos originales sont conservées ; **Rétablir les fonds** les réaffiche. Les modifications ne sont partagées qu’après **Enregistrer**. Au premier lancement, le navigateur télécharge le modèle de détourage.

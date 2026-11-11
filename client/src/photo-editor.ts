@@ -3,7 +3,7 @@ import { cropImage } from "./image-cropper";
 export type Photos = Record<string, string>;
 export function photoFor(photos: Photos, value: number, game: "odin" | "rummikub" = "odin"): string {
   return (
-    (game === "rummikub" ? photos[`r${value}`] : undefined) ||
+    (game === "rummikub" ? photos[`c${value}`] || photos[`r${value}`] : undefined) ||
     photos[value] ||
     photos[((value - 1) % 9) + 1] ||
     `/${((value - 1) % 9) + 1}.png`
@@ -38,7 +38,7 @@ export class PhotoEditor {
       if (action === "close") this.dialog.close();
       if (action === "reset") {
         if (this.section === "background") delete this.photos.background;
-        else for (let n = 1; n <= this.count; n++) delete this.photos[this.key(n)];
+        else for (let n = 1; n <= this.count; n++) { delete this.photos[this.key(n)]; if (this.section === "rummikub") delete this.photos[`c${n}`]; }
         this.message = "";
         this.render();
       }
@@ -48,8 +48,12 @@ export class PhotoEditor {
         this.render();
       }
       if (action === "save") void this.persist();
+      if (action === "cutout") void this.cutoutAll();
+      if (action === "uncut") { for (let n = 1; n <= 13; n++) delete this.photos[`c${n}`]; this.render(); }
       if (action === "restore") {
-        delete this.photos[this.key(Number(button.dataset.value))];
+        const n = Number(button.dataset.value);
+        delete this.photos[this.key(n)];
+        if (this.section === "rummikub") delete this.photos[`c${n}`];
         this.render();
       }
       if (action === "move")
@@ -117,11 +121,11 @@ export class PhotoEditor {
     this.dialog.showModal();
   }
   private render() {
-    this.dialog.innerHTML = `<div class="photo-editor-heading"><h2>Personnalisation</h2><button class="text" data-photo-action="close" aria-label="Fermer" ${this.pending ? "disabled" : ""}>✕</button></div><div class="photo-editor-toolbar" role="group" aria-label="Personnalisation">${([ ["odin", "Odin"], ["rummikub", "Rummikub"], ["background", "Fond d’écran"] ] as const).map(([key, label]) => `<button class="${this.section === key ? "" : "secondary"}" data-photo-action="section" data-section="${key}" ${this.pending ? "disabled" : ""}>${label}</button>`).join("")}</div>${this.section === "background" ? `<div class="background-editor"><img src="${this.photos.background || "/peru-anniversary-bg.png"}" alt="Fond actuel"><label class="photo-import-button">Changer le fond<input type="file" accept="image/*,.heic,.heif" data-background="true" aria-label="Changer le fond" ${this.pending ? "disabled" : ""}></label><button class="text" data-photo-action="reset" ${this.pending ? "disabled" : ""}>Fond d’origine</button><button class="text" data-photo-action="undo" ${this.pending ? "disabled" : ""}>Annuler les changements</button></div>` : `<div class="photo-editor-toolbar"><label class="photo-import-button">Importer des photos<input type="file" multiple accept="image/*,.heic,.heif" aria-label="Importer des photos" ${this.pending ? "disabled" : ""}></label><button class="text" data-photo-action="reset" ${this.pending ? "disabled" : ""}>Photos d’origine</button><button class="text" data-photo-action="undo" ${this.pending ? "disabled" : ""}>Annuler les changements</button></div><div class="photo-editor-grid">${Array.from(
+    this.dialog.innerHTML = `<div class="photo-editor-heading"><h2>Personnalisation</h2><button class="text" data-photo-action="close" aria-label="Fermer" ${this.pending ? "disabled" : ""}>✕</button></div><div class="photo-editor-toolbar" role="group" aria-label="Personnalisation">${([ ["odin", "Odin"], ["rummikub", "Rummikub"], ["background", "Fond d’écran"] ] as const).map(([key, label]) => `<button class="${this.section === key ? "" : "secondary"}" data-photo-action="section" data-section="${key}" ${this.pending ? "disabled" : ""}>${label}</button>`).join("")}</div>${this.section === "background" ? `<div class="background-editor"><img src="${this.photos.background || "/peru-anniversary-bg.png"}" alt="Fond actuel"><label class="photo-import-button">Changer le fond<input type="file" accept="image/*,.heic,.heif" data-background="true" aria-label="Changer le fond" ${this.pending ? "disabled" : ""}></label><button class="text" data-photo-action="reset" ${this.pending ? "disabled" : ""}>Fond d’origine</button><button class="text" data-photo-action="undo" ${this.pending ? "disabled" : ""}>Annuler les changements</button></div>` : `<div class="photo-editor-toolbar"><label class="photo-import-button">Importer des photos<input type="file" multiple accept="image/*,.heic,.heif" aria-label="Importer des photos" ${this.pending ? "disabled" : ""}></label>${this.section === "rummikub" ? `<button class="secondary" data-photo-action="cutout" ${this.pending ? "disabled" : ""}>Détourer les portraits</button><button class="text" data-photo-action="uncut" ${this.pending ? "disabled" : ""}>Rétablir les fonds</button>` : ""}<button class="text" data-photo-action="reset" ${this.pending ? "disabled" : ""}>Photos d’origine</button><button class="text" data-photo-action="undo" ${this.pending ? "disabled" : ""}>Annuler les changements</button></div><div class="photo-editor-grid">${Array.from(
       { length: this.count },
       (_, i) => {
         const n = i + 1;
-        return `<article class="photo-editor-slot" data-photo-slot="${n}" draggable="${!this.pending}"><label class="photo-editor-picture"><img src="${photoFor(this.photos, n, this.section === "rummikub" ? "rummikub" : "odin")}" alt="Photo ${n}" draggable="false"><input type="file" accept="image/*,.heic,.heif" data-value="${n}" aria-label="Changer la photo ${n}" ${this.pending ? "disabled" : ""}><span>${n}</span></label><div class="photo-editor-controls"><button class="text" data-photo-action="move" data-value="${n}" data-to="${n - 1}" aria-label="Déplacer la photo ${n} à gauche" ${this.pending || n === 1 ? "disabled" : ""}>←</button><button class="text" data-photo-action="restore" data-value="${n}" aria-label="Rétablir la photo ${n}" ${this.pending || !this.photos[this.key(n)] ? "disabled" : ""}>↺</button><button class="text" data-photo-action="move" data-value="${n}" data-to="${n + 1}" aria-label="Déplacer la photo ${n} à droite" ${this.pending || n === this.count ? "disabled" : ""}>→</button></div></article>`;
+        return `<article class="photo-editor-slot" data-photo-slot="${n}" draggable="${!this.pending}"><label class="photo-editor-picture"><img src="${photoFor(this.photos, n, this.section === "rummikub" ? "rummikub" : "odin")}" alt="Photo ${n}" draggable="false"><input type="file" accept="image/*,.heic,.heif" data-value="${n}" aria-label="Changer la photo ${n}" ${this.pending ? "disabled" : ""}><span>${n}</span></label><div class="photo-editor-controls"><button class="text" data-photo-action="move" data-value="${n}" data-to="${n - 1}" aria-label="Déplacer la photo ${n} à gauche" ${this.pending || n === 1 ? "disabled" : ""}>←</button><button class="text" data-photo-action="restore" data-value="${n}" aria-label="Rétablir la photo ${n}" ${this.pending || !(this.photos[this.key(n)] || (this.section === "rummikub" && this.photos[`c${n}`])) ? "disabled" : ""}>↺</button><button class="text" data-photo-action="move" data-value="${n}" data-to="${n + 1}" aria-label="Déplacer la photo ${n} à droite" ${this.pending || n === this.count ? "disabled" : ""}>→</button></div></article>`;
       },
     ).join(
       "",
@@ -131,14 +135,18 @@ export class PhotoEditor {
   }
   private swap(from: number, to: number) {
     if (to < 1 || to > this.count || from === to || this.pending) return;
-    const a = photoFor(this.photos, from, this.section === "rummikub" ? "rummikub" : "odin"),
-      b = photoFor(this.photos, to, this.section === "rummikub" ? "rummikub" : "odin");
-    for (const [value, url] of [
-      [from, b],
-      [to, a],
-    ] as const) {
+    const clean = { ...this.photos };
+    delete clean[`c${from}`]; delete clean[`c${to}`];
+    const game = this.section === "rummikub" ? "rummikub" : "odin";
+    const a = photoFor(clean, from, game), b = photoFor(clean, to, game);
+    const cutA = this.photos[`c${from}`], cutB = this.photos[`c${to}`];
+    for (const [value, url] of [[from, b], [to, a]] as const) {
       if (url.startsWith("data:")) this.photos[this.key(value)] = url;
       else delete this.photos[this.key(value)];
+    }
+    if (game === "rummikub") {
+      if (cutB) this.photos[`c${from}`] = cutB; else delete this.photos[`c${from}`];
+      if (cutA) this.photos[`c${to}`] = cutA; else delete this.photos[`c${to}`];
     }
     this.message = "";
     this.render();
@@ -163,7 +171,7 @@ export class PhotoEditor {
         numbered.every((n) => n >= 1 && n <= this.count) &&
         new Set(numbered).size === files.length;
       if (value === undefined)
-        for (let n = 1; n <= this.count; n++) delete next[this.key(n)];
+        for (let n = 1; n <= this.count; n++) { delete next[this.key(n)]; if (this.section === "rummikub") delete next[`c${n}`]; }
       for (const [i, file] of files.entries()) {
         this.message = `${i + 1} / ${files.length}`;
         this.dialog.querySelector(".photo-editor-message")!.textContent =
@@ -172,6 +180,7 @@ export class PhotoEditor {
         const image = await cropImage(file, false, `Photo ${number} · ${i + 1} / ${files.length}`);
         if (image === null) { this.message = "Import annulé."; return; }
         next[this.key(number)] = image;
+        if (this.section === "rummikub") delete next[`c${number}`];
       }
       this.photos = next;
       this.message = "";
@@ -181,6 +190,24 @@ export class PhotoEditor {
       this.pending = false;
       this.render();
     }
+  }
+  private async cutoutAll() {
+    if (this.pending || this.section !== "rummikub") return;
+    this.pending = true; this.message = "Chargement du détourage…"; this.render();
+    const next = { ...this.photos };
+    try {
+      const { cutoutPortrait } = await import("./portrait-cutout");
+      for (let n = 1; n <= 13; n++) {
+        this.message = `Détourage ${n} / 13…`;
+        this.dialog.querySelector(".photo-editor-message")!.textContent = this.message;
+        const originals = { ...next }; delete originals[`c${n}`];
+        next[`c${n}`] = await cutoutPortrait(photoFor(originals, n, "rummikub"));
+      }
+      this.photos = next;
+      this.message = "Portraits détourés. Enregistrez pour appliquer.";
+    } catch {
+      this.message = "Détourage impossible. Vérifiez la connexion et réessayez.";
+    } finally { this.pending = false; this.render(); }
   }
   private async importBackground(file: File) {
     if (this.pending) return;

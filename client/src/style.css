@@ -1606,3 +1606,7 @@ button.info-close:hover:not(:disabled) { background: #4b5d4b; color: #fff; }
 @media (max-width: 600px) {
   .home-join { grid-template-columns: minmax(0, 1fr); }
 }
+
+.rummi-art span { position: relative; overflow: hidden; isolation: isolate; }
+.rummi-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: -1; }
+.rummi-art b { align-self: start; justify-self: start; font: 700 1rem "DM Sans", sans-serif; background: #fff8e5eb; border-radius: 3px; padding: 1px 3px; }
