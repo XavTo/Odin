@@ -23,6 +23,7 @@ import { GameStore } from './game.store';
 
 @Injectable()
 export class GameService implements OnModuleDestroy {
+  private previews = new WeakMap<GameRoom, { revision: number; melds: Card[][] }>();
   private rooms = new Map<string, GameRoom>();
   private profiles = new Map<string, Profile>();
   private photos: Record<string, string> = {};
@@ -454,6 +455,42 @@ export class GameService implements OnModuleDestroy {
     } else return false;
     return true;
   }
+  previewMelds(
+    roomId: unknown,
+    socketId: string,
+    proposed: unknown,
+    revision: unknown,
+  ): { room: GameRoom; melds: Card[][] | null } {
+    const room = this.getRoom(roomId);
+    const player = this.requireTurn(room, socketId, 'rummikub', revision);
+    if (proposed === null) {
+      this.previews.delete(room);
+      return { room, melds: null };
+    }
+    const committed = room.state.melds.flat();
+    const known = new Map([...committed, ...player.hand].map((tile) => [tile.id, tile]));
+    if (!Array.isArray(proposed) || proposed.length > known.size)
+      throw new Error('Table provisoire invalide.');
+    const used = new Set<string>();
+    const melds = proposed.map((group: unknown) => {
+      if (!Array.isArray(group) || group.length < 1 || group.length > known.size)
+        throw new Error('Combinaison provisoire invalide.');
+      return group.map((id: unknown) => {
+        const tile = typeof id === 'string' ? known.get(id) : undefined;
+        if (!tile || used.has(tile.id)) throw new Error('Tuile provisoire invalide.');
+        used.add(tile.id);
+        return tile;
+      });
+    });
+    if (committed.some((tile) => !used.has(tile.id)))
+      throw new Error('Les tuiles posées doivent rester sur la table.');
+    if (!player.opened && room.state.melds.some((old) =>
+      !melds.some((group) => group.length === old.length && group.every((tile, i) => tile.id === old[i].id)),
+    )) throw new Error('La première pose doit venir du chevalet.');
+    this.previews.set(room, { revision: room.revision, melds });
+    return { room, melds };
+  }
+
   submitMelds(
     roomId: unknown,
     socketId: string,
@@ -488,8 +525,14 @@ export class GameService implements OnModuleDestroy {
     this.touch(room);
     return room;
   }
-  private drawFor(room: GameRoom, player: Player): void {
+  private drawFor(room: GameRoom, player: Player, timedOut = false): void {
     const tile = room.state.deck.pop();
+    room.state.lastDraw = {
+      revision: room.revision + 1,
+      playerId: player.id,
+      timedOut,
+      drewTile: !!tile,
+    };
     if (tile) {
       player.hand.push(tile);
       room.state.emptyPasses = 0;
@@ -521,6 +564,7 @@ export class GameService implements OnModuleDestroy {
         this.drawFor(
           room,
           room.players.find((p) => p.id === room.state.currentPlayerId)!,
+          true,
         );
         this.touch(room);
         changed.push(room);
@@ -547,6 +591,7 @@ export class GameService implements OnModuleDestroy {
   }
   buildStateForPlayer(room: GameRoom, playerId: string): PublicGameState {
     const player = room.players.find((p) => p.id === playerId && !p.forfeited);
+    const preview = this.previews.get(room);
     return {
       roomId: room.id,
       serverNow: Date.now(),
@@ -589,6 +634,9 @@ export class GameService implements OnModuleDestroy {
       roundResult: room.state.roundResult,
       deadline: room.state.deadline,
       paused: Boolean(room.pausedAt),
+      preview: preview && preview.revision === room.revision && playerId !== room.state.currentPlayerId
+        ? preview.melds : null,
+      lastDraw: room.state.lastDraw,
     };
   }
   getRoom(roomId: unknown): GameRoom {
@@ -622,6 +670,7 @@ export class GameService implements OnModuleDestroy {
       table: [],
       melds: [],
       lastPlay: null,
+      lastDraw: undefined,
       currentPlayerId: room.roundStarterId,
       passed: new Set(),
       leaderRequired: room.game === 'odin',
@@ -830,6 +879,7 @@ export class GameService implements OnModuleDestroy {
     return createHash('sha256').update(token).digest('hex');
   }
   private touch(room: GameRoom): void {
+    this.previews.delete(room);
     room.revision++;
     room.updatedAt = Date.now();
     this.save();

@@ -47,7 +47,7 @@ export class GameGateway
     });
     this.timer = setInterval(() => {
       for (const room of this.gameService.tick()) this.emitState(room);
-    }, 1000);
+    }, 200);
   }
   onModuleDestroy(): void {
     if (this.timer) clearInterval(this.timer);
@@ -117,6 +117,22 @@ export class GameGateway
     return this.run(c, () =>
       this.gameService.pass(p?.roomId, c.id, p?.revision),
     );
+  }
+  @SubscribeMessage('previewMelds')
+  preview(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
+    try {
+      this.limit(c);
+      const { room, melds } = this.gameService.previewMelds(p?.roomId, c.id, p?.melds, p?.revision);
+      c.to(room.id).emit('meldPreview', {
+        roomId: room.id,
+        revision: room.revision,
+        playerId: room.state.currentPlayerId,
+        melds,
+      });
+      return { ok: true };
+    } catch (e) {
+      return this.error(e);
+    }
   }
   @SubscribeMessage('submitMelds')
   melds(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {

@@ -326,6 +326,35 @@ describe('Persistent multiplayer games', () => {
       ),
     ).toThrow('changé');
   });
+  it('shares only temporarily placed tiles and discards the preview on timeout', () => {
+    let now = 100000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const r = room('rummikub');
+    const [a, b] = r.players;
+    r.state.currentPlayerId = a.id;
+    const tile = a.hand[0];
+    const revision = r.revision;
+    expect(() => service.previewMelds(r.id, 'b', [[b.hand[0].id]], revision)).toThrow();
+    expect(() => service.previewMelds(r.id, 'a', [[b.hand[0].id]], revision)).toThrow();
+    expect(() => service.previewMelds(r.id, 'a', [[tile.id, tile.id]], revision)).toThrow();
+    service.previewMelds(r.id, 'a', [[tile.id]], revision);
+    expect(service.buildStateForPlayer(r, b.id).preview).toEqual([[tile]]);
+    expect(service.buildStateForPlayer(r, a.id).preview).toBeNull();
+    expect(r.state.melds).toEqual([]);
+    expect(r.revision).toBe(revision);
+    service.previewMelds(r.id, 'a', null, revision);
+    expect(service.buildStateForPlayer(r, b.id).preview).toBeNull();
+    service.previewMelds(r.id, 'a', [[tile.id]], revision);
+    now += 60001;
+    service.tick();
+    const after = service.buildStateForPlayer(r, b.id);
+    expect(after.preview).toBeNull();
+    expect(after.lastDraw).toEqual({
+      revision: r.revision, playerId: a.id, timedOut: true, drewTile: true,
+    });
+    expect(a.hand).toHaveLength(15);
+    expect(r.state.melds).toEqual([]);
+  });
   it('draws exactly one tile at timeout, never repeatedly for the same turn', () => {
     let now = 100000;
     jest.spyOn(Date, 'now').mockImplementation(() => now);

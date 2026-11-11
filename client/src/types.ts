@@ -41,6 +41,12 @@ export interface RoundResult {
   points: Record<string, number>;
   reason: string;
 }
+export interface RummikubDraw {
+  revision: number;
+  playerId: string;
+  timedOut: boolean;
+  drewTile: boolean;
+}
 export interface GameState {
   phase: GamePhase;
   deck: Card[];
@@ -56,6 +62,7 @@ export interface GameState {
   roundResult: RoundResult | null;
   deadline: number | null;
   emptyPasses: number;
+  lastDraw?: RummikubDraw;
 }
 export interface GameRoom {
   id: string;
@@ -121,4 +128,6 @@ export interface PublicGameState {
   roundResult: RoundResult | null;
   deadline: number | null;
   paused: boolean;
+  preview?: Card[][] | null;
+  lastDraw?: RummikubDraw;
 }
