@@ -1,4 +1,5 @@
 import "./style.css";
+import { playSound, soundEnabled, toggleSound } from "./sounds";
 import { PhotoEditor, photoFor } from "./photo-editor";
 import type { Photos } from "./photo-editor";
 import { io } from "socket.io-client";
@@ -238,6 +239,7 @@ socket.on("roomLeft", () => {
   render();
 });
 socket.on("state", (next: PublicGameState) => {
+  if (state && state.roomId === next.roomId && state.phase === "playing" && next.phase === "playing" && state.currentPlayerId !== next.currentPlayerId && next.currentPlayerId === next.you?.id) playSound("turn");
   if (state?.roomId !== next.roomId) customTurnSelected = false;
   const sameTurn =
     state?.roomId === next.roomId &&
@@ -343,7 +345,7 @@ function settings(): string {
 }
 function room(): string {
   const s = state!;
-  return `<div class="room-bar"><div><span class="eyebrow">${names[game]}</span><h2>${s.roomId} <button class="secondary compact" data-action="invite">Copier le lien</button></h2></div><button class="text" data-action="leave" ${!ready || busy ? "disabled" : ""}>${s.phase === "playing" || s.phase === "round_end" ? "Abandonner" : "Quitter la salle"}</button></div>${players()}${!host() && s.players.some((p) => p.isHost && !p.connected) ? '<p class="muted">L’hôte est déconnecté. Après 30 secondes, vous pouvez <button class="text" data-action="claim-host">reprendre le rôle d’hôte</button>.</p>' : ""}${s.phase === "lobby" ? `${settings()}<div class="start-row">${s.players.length < 2 ? "<p>2 joueurs minimum.</p>" : !host() ? "<p>En attente de l’hôte.</p>" : ""}<button data-action="start" ${!host() || !ready || busy || s.players.filter((p) => !p.forfeited).length < 2 || s.players.some((p) => !p.connected) ? "disabled" : ""}>Lancer la partie →</button></div>` : playArea()}`;
+  return `<div class="room-bar"><div><span class="eyebrow">${names[game]}</span><h2>${s.roomId} <button class="secondary compact" data-action="invite">Copier le lien</button></h2></div><div class="room-actions"><button class="text sound-toggle" data-action="sound" aria-pressed="${soundEnabled()}">${soundEnabled() ? "Son activé" : "Son coupé"}</button><button class="text" data-action="leave" ${!ready || busy ? "disabled" : ""}>${s.phase === "playing" || s.phase === "round_end" ? "Abandonner" : "Quitter la salle"}</button></div></div>${players()}${!host() && s.players.some((p) => p.isHost && !p.connected) ? '<p class="muted">L’hôte est déconnecté. Après 30 secondes, vous pouvez <button class="text" data-action="claim-host">reprendre le rôle d’hôte</button>.</p>' : ""}${s.phase === "lobby" ? `${settings()}<div class="start-row">${s.players.length < 2 ? "<p>2 joueurs minimum.</p>" : !host() ? "<p>En attente de l’hôte.</p>" : ""}<button data-action="start" ${!host() || !ready || busy || s.players.filter((p) => !p.forfeited).length < 2 || s.players.some((p) => !p.connected) ? "disabled" : ""}>Lancer la partie →</button></div>` : playArea()}`;
 }
 function result(): string {
   const s = state!;
@@ -402,11 +404,11 @@ function playArea(): string {
             : '<div class="empty-table"><span aria-hidden="true">✧</span></div>'
         }</div><p class="table-note">${s.table.length === 1 ? "Cette carte est récupérée automatiquement si votre main n’est pas vidée." : s.table.length > 1 ? "Choisissez ici la carte à récupérer. Aucune reprise si vous videz votre main." : ""}</p>`
       : `<div class="rummi-board" data-drop-row="new"><div class="board-help">${s.players.find((p) => p.id === s.you?.id)?.opened ? "Sélectionnez des tuiles, puis une position + pour les déplacer. Le glisser-déposer fonctionne aussi." : "Première pose : au moins 30 points de votre chevalet. La table existante reste intacte."}</div>${b.map((m, row) => `<div class="meld ${validMeld(m) === null ? "invalid" : ""}" data-drop-row="${row}"><span class="meld-label">${row + 1}</span><div class="meld-tiles">${m.map((t, pos) => `${slot(row, pos)}${card(t, "board", !me || busy || !canTouch(t))}`).join("")}${slot(row, m.length)}</div>${me ? `<button class="text compact" data-reverse="${row}" ${busy ? "disabled" : ""} title="Inverser l’ordre">⇄</button>` : ""}<span class="meld-status">${validMeld(m) === null ? "À compléter" : `${validMeld(m)} pts ✓`}</span></div>`).join("") || '<div class="empty-table"><span>✧</span><p>Aucune combinaison sur la table.</p></div>'}</div>`
-  }</section><section class="panel rack-panel"><div class="rack-heading"><div><h2>${game === "odin" ? "Votre main" : "Votre chevalet"} <small>${game === "odin" ? s.hand.length : rack().length}</small></h2></div><div class="toolbar"><button class="text" data-action="sort">Trier par ${sort === "color" ? "valeur" : "couleur"}</button><button class="text" data-action="photos">${photosVisible ? "Masquer" : "Afficher"} les photos</button></div></div><div class="tile-row rack" data-drop-rack="true">${
+  }<div class="action-bar"><p id="selection-hint" aria-live="polite">${game === "odin" ? odinHint() : selected.size ? `${selected.size} sélectionnée(s)` : draft ? "Brouillon" : ""}</p><div class="actions">${game === "odin" ? `<button class="secondary" data-action="suggest" ${!me || busy ? "disabled" : ""}>Suggestion</button><button class="text" data-action="clear">Désélectionner</button><button class="secondary" data-action="pass" ${!me || busy || s.leaderRequired ? "disabled" : ""}>Passer</button><button data-action="play" ${!me || busy || !odinHint().startsWith("Prêt") ? "disabled" : ""}>Jouer ${selected.size || ""} →</button>` : `<button class="secondary" data-action="new-meld" ${!me || busy || !selected.size ? "disabled" : ""}>Nouvelle combinaison</button><button class="text" data-action="undo" ${!me || busy || !undoStack.length ? "disabled" : ""}>Annuler</button><button class="text" data-action="reset" ${!me || busy || !draft ? "disabled" : ""}>Tout rétablir</button><button class="secondary" data-action="draw" ${!me || busy ? "disabled" : ""}>${s.deckCount ? "Piocher et passer" : "Passer (pioche vide)"}</button><button data-action="validate" ${!me || busy || !draft ? "disabled" : ""}>Valider le tour →</button>`}</div></div></section><section class="panel rack-panel"><div class="rack-heading"><div><h2>${game === "odin" ? "Votre main" : "Votre chevalet"} <small>${game === "odin" ? s.hand.length : rack().length}</small></h2></div><div class="toolbar"><button class="text" data-action="sort">Trier par ${sort === "color" ? "valeur" : "couleur"}</button><button class="text" data-action="photos">${photosVisible ? "Masquer" : "Afficher"} les photos</button></div></div><div class="tile-row rack" data-drop-rack="true">${
     sorted(game === "odin" ? s.hand : rack())
       .map((t) => card(t, "hand", !me || busy))
       .join("") || '<p class="muted">Chevalet vide. Validez le tour.</p>'
-  }</div><div class="action-bar"><p id="selection-hint" aria-live="polite">${game === "odin" ? odinHint() : selected.size ? `${selected.size} sélectionnée(s)` : draft ? "Brouillon" : ""}</p><div class="actions">${game === "odin" ? `<button class="secondary" data-action="suggest" ${!me || busy ? "disabled" : ""}>Suggestion</button><button class="text" data-action="clear">Désélectionner</button><button class="secondary" data-action="pass" ${!me || busy || s.leaderRequired ? "disabled" : ""}>Passer</button><button data-action="play" ${!me || busy || !odinHint().startsWith("Prêt") ? "disabled" : ""}>Jouer ${selected.size || ""} →</button>` : `<button class="secondary" data-action="new-meld" ${!me || busy || !selected.size ? "disabled" : ""}>Nouvelle combinaison</button><button class="text" data-action="undo" ${!me || busy || !undoStack.length ? "disabled" : ""}>Annuler</button><button class="text" data-action="reset" ${!me || busy || !draft ? "disabled" : ""}>Tout rétablir</button><button class="secondary" data-action="draw" ${!me || busy ? "disabled" : ""}>${s.deckCount ? "Piocher et passer" : "Passer (pioche vide)"}</button><button data-action="validate" ${!me || busy || !draft ? "disabled" : ""}>Valider le tour →</button>`}</div></div></section>`;
+  }</div></section>`;
 }
 function slot(row: number, pos: number): string {
   return `<button class="slot" data-place="${row}:${pos}" data-drop-row="${row}" data-drop-pos="${pos}" aria-label="Insérer à la position ${pos + 1} de la combinaison ${row + 1}" ${!yourTurn() || busy || !selected.size ? "disabled" : ""}>+</button>`;
@@ -445,6 +447,7 @@ function ranking(): string {
   return `<section class="ranking"><div class="section-heading"><span></span><button class="text" data-action="refresh-ranking">Actualiser ↻</button></div><p class="muted">Profil enregistré dans ce navigateur.</p>${rankingLoading ? '<p role="status">Chargement…</p>' : rankingError ? `<p role="alert">${esc(rankingError)}</p>` : rankings.length ? `<div class="ranking-scroll"><table><thead><tr><th>Place</th><th>Joueur</th><th>Elo</th><th>Victoires</th><th>Parties</th></tr></thead><tbody>${rankings.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td><strong>${r.rating}</strong></td><td>${r.wins}${r.draws ? ` (+${r.draws} ex æquo)` : ""}</td><td>${r.played}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty-ranking">Aucune partie terminée.</div>'}</section>`;
 }
 function render() {
+  document.body.classList.toggle("in-game", !!state && state.phase === "playing" && siteUnlocked);
   if (!siteUnlocked) {
     content.innerHTML = accessChecking
       ? '<section class="panel access-panel"><p role="status">Chargement…</p></section>'
@@ -463,7 +466,7 @@ function render() {
   const customValue = id === "custom-turn-seconds" ? focused?.value : undefined;
   const focusedTile = focused?.dataset.tile;
   const focusedSource = focused?.dataset.source;
-  content.innerHTML = `${state ? room() : home()}<nav class="bottom-nav" aria-label="Informations"><button class="text" data-action="rules" aria-haspopup="dialog">Règles</button><button class="text" data-action="ranking" aria-haspopup="dialog">Classement</button></nav>`;
+  content.innerHTML = `${state ? room() : home()}<nav class="bottom-nav" aria-label="Informations"><button class="text" data-action="rules" aria-haspopup="dialog">Règles</button><button class="text" data-action="ranking" aria-haspopup="dialog">Classement</button>${!state ? `<button class="text" data-action="sound" aria-pressed="${soundEnabled()}">${soundEnabled() ? "Son activé" : "Son coupé"}</button>` : ""}</nav>`;
   if (rulesOpen || rankingsOpen) {
     const infoBody = document.querySelector<HTMLElement>("#info-body")!;
     const html = rulesOpen ? rules() : ranking();
@@ -573,8 +576,10 @@ function restoreDraft() {
     if (
       Array.isArray(data.draft) &&
       data.draft.flat().every((id: string) => all.has(id))
-    )
-      draft = data.draft.map((m: string[]) => m.map((id) => all.get(id)!));
+    ) {
+      if (JSON.stringify(data.draft) === JSON.stringify(data.table)) clearDraft();
+      else draft = data.draft.map((m: string[]) => m.map((id) => all.get(id)!));
+    }
   } catch {
     /* ignore a stale draft */
   }
@@ -735,6 +740,10 @@ function finishConfirmation(value: boolean) {
 }
 async function action(name: string) {
   switch (name) {
+    case "sound":
+      toggleSound();
+      render();
+      return;
     case "admin":
       if (!ready) return;
       if (isAdmin) {
@@ -817,12 +826,15 @@ async function action(name: string) {
     case "new-meld":
       moveSelected("new");
       return;
-    case "undo":
-      draft = undoStack.pop() ?? null;
+    case "undo": {
+      const previous = undoStack.pop() ?? null;
+      const ids = (melds: Card[][]) => JSON.stringify(melds.map((m) => m.map((t) => t.id)));
+      draft = previous && state && ids(previous) === ids(state.melds) ? null : previous;
       selected.clear();
-      persistDraft();
+      if (draft) persistDraft(); else clearDraft();
       render();
       return;
+    }
     case "reset":
       draft = null;
       undoStack = [];
@@ -956,6 +968,8 @@ app.addEventListener("click", (event) => {
   );
   if (!t || (t as HTMLButtonElement).disabled) return;
   if (t.dataset.action) {
+    if (["create", "join", "start"].includes(t.dataset.action)) playSound("select", true);
+    if (["play", "pass", "draw", "validate", "new-meld", "undo", "reset"].includes(t.dataset.action)) playSound("action", true);
     void action(t.dataset.action);
     return;
   }
@@ -967,6 +981,7 @@ app.addEventListener("click", (event) => {
     return;
   }
   if (t.dataset.tile && yourTurn() && !busy) {
+    playSound("select", true);
     if (t.dataset.source === "take")
       take = take === t.dataset.tile ? null : t.dataset.tile;
     else {
@@ -979,6 +994,7 @@ app.addEventListener("click", (event) => {
     return;
   }
   if (t.dataset.place) {
+    playSound("select", true);
     const [row, pos] = t.dataset.place.split(":").map(Number);
     moveSelected(row, pos);
     return;
