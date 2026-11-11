@@ -437,3 +437,25 @@ body.rummikub-playing #connection:not([hidden]) {
 .rm-invite {
   flex: 0 0 auto;
 }
+
+/* Scale group controls with the tiles so a full table fits on short screens. */
+.rm-groups {
+  gap: clamp(2px, calc(var(--board-tile) * 0.1), 5px) 3px;
+}
+.rm-meld {
+  padding: clamp(1px, calc(var(--board-tile) * 0.07), 3px);
+}
+.rm-meld .rm-group {
+  min-height: clamp(12px, var(--board-tile), 22px);
+  width: clamp(11px, calc(var(--board-tile) * 0.35), 23px);
+  padding: 0;
+}
+.rm-gap:not(:disabled) {
+  width: clamp(5px, calc(var(--board-tile) * 0.25), 18px);
+}
+.rm-new:not(.rm-new-end) {
+  width: clamp(8px, calc(var(--board-tile) * 0.36), 21px);
+  min-height: clamp(14px, var(--board-tile), 26px);
+  padding: 0;
+  font-size: clamp(0.55rem, calc(var(--board-tile) * 0.3), 0.9rem);
+}
