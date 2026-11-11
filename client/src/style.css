@@ -19,7 +19,7 @@ body {
   background:
     radial-gradient(ellipse at 10% 10%, #50604c33, transparent 50%),
     linear-gradient(#17221c99, #17221cbb),
-    var(--app-background, url("/peru-anniversary-bg.png")) center/cover fixed;
+    var(--app-background, none) center/cover fixed;
 }
 button,
 input,

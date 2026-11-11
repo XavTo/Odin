@@ -54,6 +54,7 @@ let draft: Card[][] | null = null;
 let undoStack: Card[][][] = [];
 let sort: "color" | "value" = "color";
 let photoLibrary: Photos = {};
+let backgroundSynced = false;
 let isAdmin = false;
 let adminPending = false;
 let openPhotosAfterAdmin = false;
@@ -117,9 +118,26 @@ const photoEditor = new PhotoEditor(async (photos) => {
   render();
   notify("Photos enregistrées.");
 });
-function applyBackground() {
-  const url = photoLibrary.background || "/peru-anniversary-bg.png";
+function showBackground(background?: string | null) {
+  const url = background || "/peru-anniversary-bg.png";
   document.documentElement.style.setProperty("--app-background", `url("${url}")`);
+}
+function applyBackground() {
+  backgroundSynced = true;
+  showBackground(photoLibrary.background);
+}
+async function loadBackground() {
+  try {
+    const response = await fetch(`${serverUrl}/background`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) return;
+    const data: { background?: string | null } = await response.json();
+    if (!backgroundSynced) showBackground(data.background);
+  } catch {
+    // Keep the neutral background if the server is unavailable.
+  }
 }
 function notify(message: string) {
   const el = document.querySelector<HTMLElement>("#toast")!;
@@ -1012,4 +1030,5 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden && socket.connected && ready) socket.emit("sync");
 });
 render();
+void loadBackground();
 void bootstrapAccess();

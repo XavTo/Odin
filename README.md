@@ -30,7 +30,7 @@ Sur Railway, définir **`SITE_PASSWORD` sur `Odin-Server`** puis redéployer le 
 
 Après connexion, seul un jeton d’accès signé est conservé dans ce navigateur pendant 30 jours. Un refresh ou un redémarrage ne redemande pas le mot de passe. Modifier `SITE_PASSWORD` invalide les accès précédents et demande une nouvelle connexion. La clé de signature est enregistrée dans le volume persistant (`/data/access-secret`). Le mot de passe n’est jamais écrit dans les sauvegardes.
 
-Sans variable `SITE_PASSWORD`, l’accès reste ouvert pour le développement local. Le mot de passe protège les parties, les photos de salle et les classements ; les ressources statiques du client (dont les images d’origine déjà publiques) restent servies par le service web.
+Sans variable `SITE_PASSWORD`, l’accès reste ouvert pour le développement local. Le mot de passe protège les parties, les photos de salle et les classements ; le fond d’écran personnalisé est accessible avant connexion afin de l’afficher sur la page du mot de passe ; les ressources statiques du client (dont les images d’origine déjà publiques) restent servies par le service web.
 
 Les codes de salle comportent exactement **quatre chiffres**, zéros initiaux compris (ex. `0042`). Le mot de passe est commun au site ; le pseudo et la session de jeu restent individuels.
 
