@@ -184,20 +184,88 @@ export function enableTileDragging(
 export function fitRummikub(stage: HTMLElement): () => void {
   const table = stage.querySelector<HTMLElement>(".rm-table")!;
   const rack = stage.querySelector<HTMLElement>(".rm-rack")!;
+  const groups = table.querySelector<HTMLElement>(".rm-groups")!;
+  const slots = Array.from(groups.children) as HTMLElement[];
+  const rowGap = 8;
+
+  const availableHeight = () =>
+    table.clientHeight - groups.offsetTop - parseFloat(getComputedStyle(table).paddingBottom);
+
+  function spreadGroups() {
+    const width = groups.clientWidth;
+    const height = availableHeight();
+    const sizes = slots.map((element) => {
+      const bounds = element.getBoundingClientRect();
+      return { element, width: Math.ceil(bounds.width), height: bounds.height };
+    });
+    type Row = typeof sizes;
+    const rowWidth = (row: Row) =>
+      row.reduce((sum, slot) => sum + slot.width, (row.length - 1) * rowGap);
+    const rowHeight = (row: Row) => Math.max(...row.map((slot) => slot.height));
+
+    const packed: Row[] = [[]];
+    for (const slot of sizes) {
+      const row = packed[packed.length - 1];
+      if (row.length && rowWidth(row) + rowGap + slot.width > width) packed.push([slot]);
+      else row.push(slot);
+    }
+
+    // Split the widest rows as space allows so groups also use the height of the table.
+    let spareHeight = height - packed.reduce((sum, row) => sum + rowHeight(row), (packed.length - 1) * rowGap);
+    while (spareHeight > 0) {
+      let best: { index: number; left: Row; right: Row; cost: number; improvement: number } | undefined;
+      packed.forEach((row, index) => {
+        for (let split = 1; split < row.length; split++) {
+          const left = row.slice(0, split);
+          const right = row.slice(split);
+          if (right.length === 1 && right[0].element.classList.contains("rm-new-end")) continue;
+          const cost = rowHeight(left) + rowHeight(right) + rowGap - rowHeight(row);
+          const improvement = Math.min(rowWidth(left), rowWidth(right));
+          if (cost <= spareHeight && (!best || improvement > best.improvement)) {
+            best = { index, left, right, cost, improvement };
+          }
+        }
+      });
+      if (!best) break;
+      packed.splice(best.index, 1, best.left, best.right);
+      spareHeight -= best.cost;
+    }
+
+    const rows = packed.map((items) => {
+      const row = document.createElement("div");
+      row.className = "rm-board-row";
+      row.append(...items.map((item) => item.element));
+      return row;
+    });
+    groups.classList.add("rm-spread");
+    groups.replaceChildren(...rows);
+    if (groups.offsetHeight > availableHeight() + 1) {
+      groups.classList.remove("rm-spread");
+      groups.replaceChildren(...slots);
+    }
+  }
   const count = rack.querySelectorAll("[data-tile]").length;
   function fit() {
+    const focused = document.activeElement;
     const rows = stage.clientWidth < 570 ? 2 : count > 20 ? 2 : 1;
     const columns = Math.max(1, Math.ceil(count / rows));
     rack.style.setProperty(
       "--rack-tile",
       `${Math.min(54, Math.max(18, Math.floor((rack.clientWidth - 12 - (columns - 1) * 4) / columns)))}px`,
     );
+    if (groups.classList.contains("rm-spread")) {
+      groups.classList.remove("rm-spread");
+      groups.replaceChildren(...slots);
+    }
     let size = stage.clientWidth < 570 ? 37 : 52;
     table.style.setProperty("--board-tile", `${size}px`);
-    while (table.scrollHeight > table.clientHeight + 1 && size > 14) {
+    while (groups.offsetHeight > availableHeight() + 1 && size > 14) {
       size -= 2;
       table.style.setProperty("--board-tile", `${size}px`);
     }
+    if (stage.clientWidth >= 720 && slots.length > 2) spreadGroups();
+    if (focused instanceof HTMLElement && groups.contains(focused) && focused !== document.activeElement)
+      focused.focus({ preventScroll: true });
   }
   fit();
   const observer = new ResizeObserver(fit);

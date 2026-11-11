@@ -2,7 +2,7 @@ body.rummikub-playing {
   overflow: hidden;
 }
 body.rummikub-playing .app-shell {
-  max-width: 1440px;
+  max-width: none;
   height: 100dvh;
   padding: 5px clamp(5px, 2vw, 24px);
   display: flex;
@@ -51,6 +51,21 @@ body.rummikub-playing #connection:not([hidden]) {
   border-color: #b74e36;
   color: #7c2f20;
 }
+.rm-turn.urgent .rm-clock {
+  color: #fff;
+  background: #a52521;
+  border-radius: 5px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rm-turn.my-turn.urgent .rm-clock {
+    animation: rm-clock-tick 1s ease-out infinite;
+  }
+  @keyframes rm-clock-tick {
+    0%, 28%, 100% { transform: none; }
+    5%, 16% { transform: translateX(-2px) scale(1.12); background-color: #c52b23; }
+    10%, 22% { transform: translateX(2px) scale(1.12); background-color: #c52b23; }
+  }
+}
 .rm-turn strong {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -58,6 +73,7 @@ body.rummikub-playing #connection:not([hidden]) {
   font-size: clamp(0.85rem, 3vw, 1.1rem);
 }
 .rm-clock {
+  padding: 1px 6px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -147,8 +163,28 @@ body.rummikub-playing #connection:not([hidden]) {
   align-items: start;
   gap: 5px 3px;
 }
+.rm-group-slot {
+  display: flex;
+  gap: 3px;
+  align-items: start;
+  max-width: 100%;
+}
+.rm-group-slot > .rm-new {
+  flex-shrink: 0;
+}
+.rm-groups.rm-spread {
+  flex-flow: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.rm-board-row {
+  display: flex;
+  align-items: start;
+  gap: 8px;
+}
 .rm-meld {
   display: flex;
+  min-width: 0;
   flex-wrap: wrap;
   position: relative;
   align-items: center;
@@ -458,4 +494,10 @@ body.rummikub-playing #connection:not([hidden]) {
   min-height: clamp(14px, var(--board-tile), 26px);
   padding: 0;
   font-size: clamp(0.55rem, calc(var(--board-tile) * 0.3), 0.9rem);
+}
+
+@media (min-width: 768px) {
+  .rm-gap {
+    width: clamp(5px, calc(var(--board-tile) * 0.25), 18px);
+  }
 }
