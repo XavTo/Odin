@@ -1499,3 +1499,110 @@ button.admin-entry:focus-visible {
 .crop-control { display: flex; align-items: center; gap: 12px; margin: 9px 0; }
 .crop-control input { flex: 1; min-width: 0; accent-color: var(--accent); }
 .crop-error { color: #f6b2a2; }
+
+/* Shared interaction and reading surfaces */
+button.text:hover:not(:disabled) {
+  background: rgba(239, 209, 152, 0.12);
+  color: #fff8e9;
+  text-decoration: none;
+}
+button.text:active:not(:disabled), button.secondary:active:not(:disabled) {
+  background: rgba(239, 209, 152, 0.2);
+}
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid #f6db9e;
+  outline-offset: 3px;
+}
+input:hover:not(:disabled), select:hover:not(:disabled) { border-color: #a9bba2; }
+input:focus-visible, select:focus-visible { border-color: #e6c88f; }
+.app-shell { padding-bottom: 32px; }
+.hero { padding: 14px 0 20px; }
+.ornament { height: 74px; }
+.panel, .table-panel { box-shadow: 0 12px 35px #0b150f25; }
+.home-join { grid-template-columns: minmax(120px, .65fr) minmax(0, 1fr); align-items: start; }
+.player > div { min-width: 0; overflow-wrap: anywhere; }
+.start-row { min-height: 52px; }
+.start-row > button:only-child { margin-left: auto; }
+.bottom-nav { gap: 10px; flex-wrap: wrap; margin: 26px 0 10px; }
+.bottom-nav button.text {
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #1d3025e8;
+  color: #f1e4c9;
+  font-size: .85rem;
+}
+.bottom-nav button.text:hover:not(:disabled) { background: #455644; color: #fff; border-color: #d2bf92; }
+.info-dialog {
+  width: min(720px, calc(100vw - 28px));
+  max-width: none;
+  max-height: min(80vh, 760px);
+  max-height: min(80dvh, 760px);
+  padding: 0;
+  overflow: hidden;
+  border-color: #a99d71;
+  background: #1d3025;
+}
+.info-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+}
+.info-header h2 { font-size: 1.45rem; }
+button.info-close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  color: #f6e8c9;
+  background: #ffffff0a;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+button.info-close:hover:not(:disabled) { background: #4b5d4b; color: #fff; }
+#info-body { overflow: auto; overscroll-behavior: contain; max-height: calc(min(80vh, 760px) - 85px); max-height: calc(min(80dvh, 760px) - 85px); padding: 20px 24px 26px; }
+.info-dialog p { margin: 0 0 16px; font-size: .9rem; line-height: 1.7; }
+.info-dialog .rules p { max-width: none; }
+.info-dialog .rules a { display: inline-block; padding: 8px 0; font-size: .85rem; }
+.info-dialog .ranking-scroll { max-width: 100%; overscroll-behavior-x: contain; }
+.info-dialog table { min-width: 480px; margin-top: 12px; }
+.info-dialog .section-heading { justify-content: flex-end; }
+.info-dialog .ranking .muted { margin-bottom: 0; }
+.slot:not(:disabled) { min-width: 24px; width: 24px; color: #f6e8c9; font-size: 1rem; border-color: #c0cfb5; background: #536b5255 !important; }
+@media (max-width: 600px) {
+  .hero { padding: 10px 0 14px; }
+  .ornament { height: 46px; }
+  #content { padding-top: 18px; }
+  .home-join { gap: 14px; }
+  .player strong { overflow-wrap: anywhere; }
+  .player p, .player small { font-size: .68rem; }
+  .toolbar button { min-height: 40px; font-size: .75rem; padding: 8px 4px; }
+  .board-help, .action-bar > p { font-size: .76rem; line-height: 1.5; }
+  .actions button { min-height: 44px; font-size: .76rem; }
+  .slot:not(:disabled) { min-width: 24px; width: 24px; height: 50px; }
+  .info-header { padding: 16px; }
+  .info-header h2 { font-size: 1.2rem; }
+  #info-body { padding: 18px 16px 24px; }
+  .info-dialog p, .info-dialog .rules p { font-size: .86rem; }
+}
+/* Keep the table readable over any custom background and bring the rack closer. */
+.table-panel { background: linear-gradient(135deg, #24382ef2, #1d3028f2); }
+.rummi-board { min-height: 160px; }
+.rummi-board .empty-table { padding: 12px 10px; }
+.rummi-board .empty-table > span { font-size: 2rem; }
+.odin-table { min-height: 165px; }
+@media (max-width: 600px) {
+  .rummi-board { min-height: 145px; }
+  .rummi-board .empty-table { padding: 8px; }
+  .odin-table { min-height: 145px; }
+  .table-heading { padding: 15px 16px; }
+}
+@media (max-width: 600px) {
+  .home-join { grid-template-columns: minmax(0, 1fr); }
+}

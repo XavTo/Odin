@@ -64,6 +64,8 @@ const turnPresets = [15, 30, 60, 120, 0];
 let rulesOpen = false,
   rankingsOpen = false;
 let rankings: Array<{ id: string; name: string } & GameStats> = [];
+let rankingLoading = false;
+let rankingError = "";
 let toastTimer = 0;
 let clockOffset = 0;
 let confirmResolve: ((value: boolean) => void) | null = null;
@@ -93,7 +95,7 @@ const socket = io(serverUrl, {
   reconnectionDelayMax: 5000,
   timeout: 20000,
 });
-app.innerHTML = `<div class="app-shell"><header class="hero"><img src="/peru-anniversary-ornament.png" alt="" class="ornament"><div><h1>Odin &amp; Rummikub</h1></div><img src="/peru-anniversary-ornament.png" alt="" class="ornament right"></header><div id="connection" role="status" aria-live="polite"></div><main id="content"></main></div><div id="toast" role="status" aria-live="polite"></div><dialog id="confirm-dialog"><h2>Confirmer l’action</h2><p id="confirm-text"></p><div class="actions"><button class="secondary" data-action="confirm-no">Annuler</button><button data-action="confirm-yes">Confirmer</button></div></dialog><dialog id="admin-dialog"><form id="admin-form"><h2>Administration</h2><label>Mot de passe administrateur<input id="admin-password" type="password" autocomplete="current-password" required maxlength="1024"></label><p id="admin-error" role="alert"></p><div class="actions"><button type="button" class="secondary" data-action="admin-close">Annuler</button><button type="submit">Se connecter</button></div></form></dialog>`;
+app.innerHTML = `<div class="app-shell"><header class="hero"><img src="/peru-anniversary-ornament.png" alt="" class="ornament"><div><h1>Odin &amp; Rummikub</h1></div><img src="/peru-anniversary-ornament.png" alt="" class="ornament right"></header><div id="connection" role="status" aria-live="polite"></div><main id="content"></main></div><div id="toast" role="status" aria-live="polite"></div><dialog id="confirm-dialog"><h2>Confirmer l’action</h2><p id="confirm-text"></p><div class="actions"><button class="secondary" data-action="confirm-no">Annuler</button><button data-action="confirm-yes">Confirmer</button></div></dialog><dialog id="admin-dialog"><form id="admin-form"><h2>Administration</h2><label>Mot de passe administrateur<input id="admin-password" type="password" autocomplete="current-password" required maxlength="1024"></label><p id="admin-error" role="alert"></p><div class="actions"><button type="button" class="secondary" data-action="admin-close">Annuler</button><button type="submit">Se connecter</button></div></form></dialog><dialog id="info-dialog" class="info-dialog" aria-labelledby="info-title"><div class="info-header"><h2 id="info-title"></h2><button type="button" class="info-close" data-action="close-info" aria-label="Fermer">✕</button></div><div id="info-body"></div></dialog>`;
 const content = document.querySelector<HTMLElement>("#content")!;
 const photoEditor = new PhotoEditor(async (photos) => {
   if (!ready || !socket.connected || !isAdmin)
@@ -437,10 +439,10 @@ function validMeld(m: Card[]): number | null {
   return m.reduce((sum, _, i) => sum + start + i, 0);
 }
 function rules(): string {
-  return `<section class="panel rules"><h3>Règles</h3>${game === "odin" ? "<p>9 cartes par joueur. Ouvrez avec une carte, puis posez une combinaison de même couleur ou même valeur, de valeur supérieure : même nombre de cartes ou une de plus. Les chiffres forment le plus grand nombre possible (8 et 2 = 82).</p><p>Après une pose, récupérez une carte de la table précédente, sauf si vous videz votre main. Passer n’empêche pas de rejouer plus tard. Quand tous les autres passent, le dernier à jouer ouvre le pli suivant.</p><p>Une main vidée ou entièrement de même couleur/valeur à l’ouverture d’un pli termine la manche. Les autres marquent un point par carte. À la limite de score, le plus petit total gagne.</p>" : '<p>106 tuiles, dont 2 jokers. Chacun reçoit 14 tuiles. Posez des groupes de 3 ou 4 valeurs identiques de couleurs différentes, ou des suites d’au moins 3 valeurs consécutives de même couleur. Le 1 ne suit jamais le 13.</p><p>Votre première pose doit valoir au moins 30 points, uniquement avec votre chevalet. Vous pourrez réorganiser la table aux tours suivants. Un joker représente la tuile qu’il remplace ; il reste sur la table et peut être réutilisé dans une combinaison valide.</p><p>Chaque tour : posez au moins une tuile, ou piochez et passez. Toutes les combinaisons doivent être valides en fin de tour. Videz votre chevalet pour gagner. Un joker restant coûte 30 points. Si la pioche est vide et tout le monde passe, le plus petit chevalet gagne.</p><p>Pour déplacer : sélectionnez une ou plusieurs tuiles, puis cliquez sur + entre deux tuiles ou « Nouvelle combinaison ». Déplacez une tuile vers le chevalet pour reprendre une tuile posée pendant ce tour. « Annuler » revient d’un geste en arrière.</p><a href="https://rummikub.com/rules/" target="_blank" rel="noopener">Consulter les règles classiques officielles ↗</a>'}</section>`;
+  return `<section class="rules">${game === "odin" ? "<p>9 cartes par joueur. Ouvrez avec une carte, puis posez une combinaison de même couleur ou même valeur, de valeur supérieure : même nombre de cartes ou une de plus. Les chiffres forment le plus grand nombre possible (8 et 2 = 82).</p><p>Après une pose, récupérez une carte de la table précédente, sauf si vous videz votre main. Passer n’empêche pas de rejouer plus tard. Quand tous les autres passent, le dernier à jouer ouvre le pli suivant.</p><p>Une main vidée ou entièrement de même couleur/valeur à l’ouverture d’un pli termine la manche. Les autres marquent un point par carte. À la limite de score, le plus petit total gagne.</p>" : '<p>106 tuiles, dont 2 jokers. Chacun reçoit 14 tuiles. Posez des groupes de 3 ou 4 valeurs identiques de couleurs différentes, ou des suites d’au moins 3 valeurs consécutives de même couleur. Le 1 ne suit jamais le 13.</p><p>Votre première pose doit valoir au moins 30 points, uniquement avec votre chevalet. Vous pourrez réorganiser la table aux tours suivants. Un joker représente la tuile qu’il remplace ; il reste sur la table et peut être réutilisé dans une combinaison valide.</p><p>Chaque tour : posez au moins une tuile, ou piochez et passez. Toutes les combinaisons doivent être valides en fin de tour. Videz votre chevalet pour gagner. Un joker restant coûte 30 points. Si la pioche est vide et tout le monde passe, le plus petit chevalet gagne.</p><p>Pour déplacer : sélectionnez une ou plusieurs tuiles, puis cliquez sur + entre deux tuiles ou « Nouvelle combinaison ». Déplacez une tuile vers le chevalet pour reprendre une tuile posée pendant ce tour. « Annuler » revient d’un geste en arrière.</p><a href="https://rummikub.com/rules/" target="_blank" rel="noopener">Consulter les règles classiques officielles ↗</a>'}</section>`;
 }
 function ranking(): string {
-  return `<section class="panel ranking"><div class="section-heading"><div><h2>Classement ${names[game]}</h2></div><button class="text" data-action="refresh-ranking">Actualiser ↻</button></div><p class="muted">Profil enregistré dans ce navigateur.</p>${rankings.length ? `<div class="ranking-scroll"><table><thead><tr><th>Place</th><th>Joueur</th><th>Elo</th><th>Victoires</th><th>Parties</th></tr></thead><tbody>${rankings.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td><strong>${r.rating}</strong></td><td>${r.wins}${r.draws ? ` (+${r.draws} ex æquo)` : ""}</td><td>${r.played}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty-ranking">Aucune partie terminée.</div>'}</section>`;
+  return `<section class="ranking"><div class="section-heading"><span></span><button class="text" data-action="refresh-ranking">Actualiser ↻</button></div><p class="muted">Profil enregistré dans ce navigateur.</p>${rankingLoading ? '<p role="status">Chargement…</p>' : rankingError ? `<p role="alert">${esc(rankingError)}</p>` : rankings.length ? `<div class="ranking-scroll"><table><thead><tr><th>Place</th><th>Joueur</th><th>Elo</th><th>Victoires</th><th>Parties</th></tr></thead><tbody>${rankings.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td><strong>${r.rating}</strong></td><td>${r.wins}${r.draws ? ` (+${r.draws} ex æquo)` : ""}</td><td>${r.played}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty-ranking">Aucune partie terminée.</div>'}</section>`;
 }
 function render() {
   if (!siteUnlocked) {
@@ -458,11 +460,19 @@ function render() {
     focused?.tagName === "INPUT" && focused.type === "text"
       ? focused.selectionStart
       : null;
+  const customValue = id === "custom-turn-seconds" ? focused?.value : undefined;
   const focusedTile = focused?.dataset.tile;
   const focusedSource = focused?.dataset.source;
-  content.innerHTML = `${state ? room() : home()}<nav class="bottom-nav"><button class="text" data-action="rules" aria-expanded="${rulesOpen}">${rulesOpen ? "Fermer les" : "Voir les"} règles</button><button class="text" data-action="ranking" aria-expanded="${rankingsOpen}">${rankingsOpen ? "Masquer le" : "Voir le"} classement ↗</button></nav>${rulesOpen ? rules() : ""}${rankingsOpen ? ranking() : ""}`;
+  content.innerHTML = `${state ? room() : home()}<nav class="bottom-nav" aria-label="Informations"><button class="text" data-action="rules" aria-haspopup="dialog">Règles</button><button class="text" data-action="ranking" aria-haspopup="dialog">Classement</button></nav>`;
+  if (rulesOpen || rankingsOpen) {
+    const infoBody = document.querySelector<HTMLElement>("#info-body")!;
+    const html = rulesOpen ? rules() : ranking();
+    if (infoBody.innerHTML !== html) infoBody.innerHTML = html;
+    document.querySelector<HTMLElement>("#info-title")!.textContent = rulesOpen ? `Règles · ${names[game]}` : `Classement · ${names[game]}`;
+  }
   if (id) {
     const next = document.getElementById(id) as HTMLInputElement;
+    if (next && customValue !== undefined) next.value = customValue;
     next?.focus({ preventScroll: true });
     if (range !== null) next?.setSelectionRange(range, range);
   }
@@ -601,17 +611,21 @@ function suggest() {
   render();
 }
 async function loadRankings() {
-  if (!ready) return;
+  if (!ready || rankingLoading) return;
+  const requestedGame = game;
+  rankingLoading = true;
+  rankingError = "";
+  render();
   try {
-    const result = await socket
-      .timeout(10000)
-      .emitWithAck("getLeaderboard", { game });
-    if (result.ok) {
-      rankings = result.rows;
-      render();
-    } else notify(result.message);
+    const result = await socket.timeout(10000).emitWithAck("getLeaderboard", { game: requestedGame });
+    if (requestedGame !== game) return;
+    if (result.ok) rankings = result.rows;
+    else rankingError = result.message || "Classement indisponible.";
   } catch {
-    notify("Le classement est momentanément indisponible.");
+    rankingError = "Classement indisponible. Réessayez.";
+  } finally {
+    rankingLoading = false;
+    render();
   }
 }
 async function unlockAdmin() {
@@ -834,13 +848,19 @@ async function action(name: string) {
       suggest();
       return;
     case "rules":
-      rulesOpen = !rulesOpen;
+    case "ranking": {
+      rulesOpen = name === "rules";
+      rankingsOpen = name === "ranking";
+      if (rankingsOpen) { rankings = []; rankingError = ""; }
       render();
-      return;
-    case "ranking":
-      rankingsOpen = !rankingsOpen;
-      render();
+      const dialog = document.querySelector<HTMLDialogElement>("#info-dialog")!;
+      if (!dialog.open) dialog.showModal();
+      dialog.querySelector<HTMLButtonElement>(".info-close")?.focus();
       if (rankingsOpen) await loadRankings();
+      return;
+    }
+    case "close-info":
+      document.querySelector<HTMLDialogElement>("#info-dialog")!.close();
       return;
     case "refresh-ranking":
       await loadRankings();
@@ -1007,6 +1027,12 @@ app.addEventListener("drop", (event) => {
       Number(row),
       el.dataset.dropPos === undefined ? undefined : Number(el.dataset.dropPos),
     );
+});
+document.querySelector("#info-dialog")!.addEventListener("close", () => {
+  const previous = rulesOpen ? "rules" : "ranking";
+  rulesOpen = false;
+  rankingsOpen = false;
+  document.querySelector<HTMLButtonElement>(`[data-action="${previous}"]`)?.focus({ preventScroll: true });
 });
 document.querySelector("#confirm-dialog")!.addEventListener("cancel", () => {
   confirmResolve?.(false);
