@@ -111,9 +111,14 @@ const photoEditor = new PhotoEditor(async (photos) => {
     throw new Error(result.message || "Enregistrement impossible.");
   }
   photoLibrary = { ...photos };
+  applyBackground();
   render();
   notify("Photos enregistrées.");
 });
+function applyBackground() {
+  const url = photoLibrary.background || "/peru-anniversary-bg.png";
+  document.documentElement.style.setProperty("--app-background", `url("${url}")`);
+}
 function notify(message: string) {
   const el = document.querySelector<HTMLElement>("#toast")!;
   el.textContent = message;
@@ -152,6 +157,7 @@ socket.on(
   }) => {
     if (session.token) save("odin-token", session.token);
     photoLibrary = session.photos ?? {};
+    applyBackground();
     isAdmin = session.isAdmin === true;
     if (!playerName && session.name !== "Joueur") playerName = session.name;
     ready = true;
@@ -173,6 +179,8 @@ socket.on(
 );
 socket.on("photosUpdated", (update: { photos: Photos }) => {
   photoLibrary = update.photos;
+  applyBackground();
+  render();
 });
 socket.on("disconnect", () => {
   connected = false;
@@ -290,7 +298,7 @@ function sorted(cards: Card[]): Card[] {
 function card(tile: Card, source: string, disabled = false): string {
   const photo =
     !tile.joker && photosVisible
-      ? photoFor(state?.settings.photos ?? {}, tile.value)
+      ? photoFor(state?.settings.photos ?? {}, tile.value, game)
       : "";
   return `<button type="button" class="tile ${game === "odin" ? "odin-card" : ""} color-${tile.color} ${selected.has(tile.id) || (source === "take" && take === tile.id) ? "selected" : ""} ${photo ? "photo" : ""}" data-tile="${esc(tile.id)}" data-source="${source}" aria-label="${tile.joker ? "Joker" : `${tile.value} ${colors[tile.color]}`}" aria-pressed="${selected.has(tile.id) || (source === "take" && take === tile.id)}" ${disabled ? "disabled" : ""} draggable="${yourTurn() && game === "rummikub" && !disabled}">${photo ? `<img src="${esc(photo)}" alt="" draggable="false">` : ""}<span class="tile-number">${tile.joker ? "★" : tile.value}</span><span class="tile-color">${tile.joker ? "Joker" : colors[tile.color]}</span></button>`;
 }

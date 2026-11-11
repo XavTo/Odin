@@ -60,6 +60,20 @@ describe('Persistent multiplayer games', () => {
     expect(restarted.getPhotos()).toEqual({});
     expect(rummi.settings.photos).toEqual({});
   });
+  it('persists independent Rummikub photos and the global background', () => {
+    const photos = {
+      '1': 'data:image/png;base64,YQ==',
+      r1: 'data:image/webp;base64,Yg==',
+      r13: 'data:image/jpeg;base64,Yw==',
+      background: 'data:image/webp;base64,ZA==',
+    };
+    service.savePhotos(photos);
+    const restarted = new GameService(new GameStore());
+    expect(restarted.getPhotos()).toEqual(photos);
+    expect(() => restarted.savePhotos({ r14: photos.r1 })).toThrow();
+    expect(() => restarted.savePhotos({ background: 'data:image/webp;base64,' + 'A'.repeat(500001) })).toThrow();
+    expect(restarted.getPhotos()).toEqual(photos);
+  });
   it('updates every room visually without changing hands or turns', () => {
     const r = room('rummikub');
     const before = {

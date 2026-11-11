@@ -340,9 +340,9 @@ export class GameService implements OnModuleDestroy {
     const photos: Record<string, string> = {};
     for (const [value, url] of Object.entries(input)) {
       if (
-        !/^(?:[1-9]|1[0-3])$/.test(value) ||
+        !/^(?:(?:r)?(?:[1-9]|1[0-3])|background)$/.test(value) ||
         typeof url !== 'string' ||
-        url.length > 120000 ||
+        url.length > (value === 'background' ? 500000 : 120000) ||
         !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(url)
       )
         throw new Error('Photo invalide ou trop volumineuse.');

@@ -18,8 +18,8 @@ body {
   min-width: 320px;
   background:
     radial-gradient(ellipse at 10% 10%, #50604c33, transparent 50%),
-    linear-gradient(#17221ce8, #17221cf5),
-    url("/peru-anniversary-bg.png") center/cover fixed;
+    linear-gradient(#17221c99, #17221cbb),
+    var(--app-background, url("/peru-anniversary-bg.png")) center/cover fixed;
 }
 button,
 input,
@@ -1487,3 +1487,6 @@ button.admin-entry:hover:not(:disabled),
 button.admin-entry:focus-visible {
   opacity: 1;
 }
+
+.background-editor { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.background-editor img { width: 100%; max-height: 280px; object-fit: cover; border-radius: 10px; }

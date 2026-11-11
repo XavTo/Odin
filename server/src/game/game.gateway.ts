@@ -25,7 +25,7 @@ interface Payload {
   settings?: Partial<GameSettings>;
   photos?: unknown;
 }
-@WebSocketGateway({ cors: { origin: '*' }, maxHttpBufferSize: 2_000_000 })
+@WebSocketGateway({ cors: { origin: '*' }, maxHttpBufferSize: 4_000_000 })
 export class GameGateway
   implements
     OnGatewayConnection,
@@ -67,7 +67,7 @@ export class GameGateway
       token,
       name: profile.name,
       isAdmin,
-      photos: isAdmin ? this.gameService.getPhotos() : undefined,
+      photos: this.gameService.getPhotos(),
       reset,
     });
     if (room) {
@@ -139,8 +139,7 @@ export class GameGateway
         this.emitState(room);
       const photos = this.gameService.getPhotos();
       for (const socket of this.server.sockets.sockets.values())
-        if (this.auth.acceptsAdmin(socket.data.adminToken))
-          socket.emit('photosUpdated', { photos });
+        socket.emit('photosUpdated', { photos });
       return { ok: true };
     } catch (e) {
       return this.error(e);
