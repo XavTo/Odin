@@ -187,6 +187,8 @@ export function fitRummikub(stage: HTMLElement): () => void {
   const groups = table.querySelector<HTMLElement>(".rm-groups")!;
   const slots = Array.from(groups.children) as HTMLElement[];
   const rowGap = 8;
+  const minBoardTile = 14;
+  const tileHeightRatio = 1.24;
 
   const availableHeight = () =>
     table.clientHeight - groups.offsetTop - parseFloat(getComputedStyle(table).paddingBottom);
@@ -245,24 +247,57 @@ export function fitRummikub(stage: HTMLElement): () => void {
     }
   }
   const count = rack.querySelectorAll("[data-tile]").length;
+
+  const setBoardSize = (size: number) => table.style.setProperty("--board-tile", `${size}px`);
+
+  function fitRack(maxHeight?: number) {
+    const narrow = stage.clientWidth < 570;
+    const style = getComputedStyle(rack);
+    const width = rack.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const gap = parseFloat(style.columnGap);
+    const height = maxHeight ?? stage.clientHeight * (narrow ? 0.34 : 0.25);
+    const maxRows = Math.min(count, narrow ? 3 : count > 20 ? 2 : 1);
+    let size = 16;
+    for (let rows = 1; rows <= maxRows; rows++) {
+      const columns = Math.ceil(count / rows);
+      const byWidth = (width - (columns - 1) * gap) / columns;
+      const byHeight = (height - (rows - 1) * gap) / rows / tileHeightRatio;
+      size = Math.max(size, Math.min(narrow ? 72 : 88, Math.floor(byWidth), Math.floor(byHeight)));
+    }
+    rack.style.setProperty("--rack-tile", `${size}px`);
+  }
+
+  function fitBoardTiles() {
+    const height = availableHeight();
+    let min = minBoardTile;
+    let max = Math.max(min, Math.floor(Math.min(120, groups.clientWidth / 5.2, height / tileHeightRatio)));
+
+    // Measure the wrapped groups because long runs and group controls take different amounts of space.
+    while (min < max) {
+      const size = Math.ceil((min + max) / 2);
+      setBoardSize(size);
+      if (groups.offsetHeight <= height + 1) min = size;
+      else max = size - 1;
+    }
+    setBoardSize(min);
+  }
+
   function fit() {
     const focused = document.activeElement;
-    const rows = stage.clientWidth < 570 ? 2 : count > 20 ? 2 : 1;
-    const columns = Math.max(1, Math.ceil(count / rows));
-    rack.style.setProperty(
-      "--rack-tile",
-      `${Math.min(54, Math.max(18, Math.floor((rack.clientWidth - 12 - (columns - 1) * 4) / columns)))}px`,
-    );
+    fitRack();
     if (groups.classList.contains("rm-spread")) {
       groups.classList.remove("rm-spread");
       groups.replaceChildren(...slots);
     }
-    let size = stage.clientWidth < 570 ? 37 : 52;
-    table.style.setProperty("--board-tile", `${size}px`);
-    while (groups.offsetHeight > availableHeight() + 1 && size > 14) {
-      size -= 2;
-      table.style.setProperty("--board-tile", `${size}px`);
+    // Leave enough room for the board before maximizing its tile size.
+    setBoardSize(minBoardTile);
+    const missingHeight = groups.offsetHeight - availableHeight();
+    if (missingHeight > 1) {
+      const style = getComputedStyle(rack);
+      const rackHeight = rack.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      fitRack(rackHeight - missingHeight);
     }
+    fitBoardTiles();
     if (stage.clientWidth >= 720 && slots.length > 2) spreadGroups();
     if (focused instanceof HTMLElement && groups.contains(focused) && focused !== document.activeElement)
       focused.focus({ preventScroll: true });
@@ -270,5 +305,6 @@ export function fitRummikub(stage: HTMLElement): () => void {
   fit();
   const observer = new ResizeObserver(fit);
   observer.observe(stage);
+  observer.observe(table);
   return () => observer.disconnect();
 }

@@ -138,7 +138,7 @@ body.rummikub-playing #connection:not([hidden]) {
   opacity: 0.75;
 }
 .rm-table {
-  --board-tile: 48px;
+  --board-tile: 72px;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -209,7 +209,7 @@ body.rummikub-playing #connection:not([hidden]) {
 }
 .rm-gap {
   padding: 0;
-  width: 3px;
+  width: clamp(4px, calc(var(--board-tile) * 0.18), 11px);
   height: calc(var(--board-tile) * 1.2);
   background: transparent;
   border: 0;
@@ -217,7 +217,6 @@ body.rummikub-playing #connection:not([hidden]) {
   border-radius: 3px;
 }
 .rm-gap:not(:disabled) {
-  width: clamp(9px, 1.6vw, 18px);
   color: #123747;
   background: #a5dee1;
   font-size: 0.75rem;
@@ -298,7 +297,7 @@ body.rummikub-playing #connection:not([hidden]) {
   font-variant-numeric: tabular-nums;
 }
 .rm-rack {
-  --rack-tile: 50px;
+  --rack-tile: 64px;
   display: flex;
   flex-wrap: wrap;
   align-items: start;
@@ -348,8 +347,8 @@ body.rummikub-playing #connection:not([hidden]) {
 .tile.rummi-tile:disabled {
   opacity: 1;
 }
-.rummi-tile img {
-  object-fit: cover;
+.tile.rummi-tile img {
+  object-fit: contain;
 }
 .rummi-tile.photo::before {
   background: none;
@@ -485,9 +484,6 @@ body.rummikub-playing #connection:not([hidden]) {
   min-height: clamp(12px, var(--board-tile), 22px);
   width: clamp(11px, calc(var(--board-tile) * 0.35), 23px);
   padding: 0;
-}
-.rm-gap:not(:disabled) {
-  width: clamp(5px, calc(var(--board-tile) * 0.25), 18px);
 }
 .rm-new:not(.rm-new-end) {
   width: clamp(8px, calc(var(--board-tile) * 0.36), 21px);
