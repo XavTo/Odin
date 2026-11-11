@@ -208,6 +208,26 @@ describe('Persistent multiplayer games', () => {
     expect(JSON.stringify(r.settings)).toBe(before);
     expect(() => service.createRoom('Again', 'a')).toThrow('déjà');
   });
+  it('accepts preset and custom Rummikub turn lengths and rejects invalid values', () => {
+    service.connect('a');
+    service.connect('b');
+    const r = service.createRoom('Alice', 'a', 'rummikub');
+    service.joinRoom(r.id, 'Bob', 'b');
+    for (const seconds of [0, 1, 15, 30, 37, 60, 120, 3600]) {
+      service.updateSettings(r.id, 'a', { turnSeconds: seconds });
+      expect(r.settings.turnSeconds).toBe(seconds);
+    }
+    for (const seconds of [-1, 1.5, 3601, NaN]) {
+      expect(() => service.updateSettings(r.id, 'a', { turnSeconds: seconds })).toThrow();
+      expect(r.settings.turnSeconds).toBe(3600);
+    }
+    expect(() => service.updateSettings(r.id, 'b', { turnSeconds: 30 })).toThrow();
+    service.updateSettings(r.id, 'a', { turnSeconds: 15 });
+    const start = Date.now();
+    service.startGame(r.id, 'a');
+    expect(r.state.deadline).toBeGreaterThanOrEqual(start + 15000);
+    expect(r.state.deadline).toBeLessThanOrEqual(Date.now() + 15000);
+  });
   it('keeps a selection valid when emptying a hand without taking a table card', () => {
     const r = room();
     const [a, b] = r.players;

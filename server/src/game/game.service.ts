@@ -309,7 +309,7 @@ export class GameService implements OnModuleDestroy {
         Math.min(6, Math.round(settings.colorCount)),
       );
     if (settings.turnSeconds !== undefined) {
-      if (![0, 60, 120].includes(settings.turnSeconds))
+      if (!Number.isInteger(settings.turnSeconds) || settings.turnSeconds < 0 || settings.turnSeconds > 3600)
         throw new Error('Durée de tour invalide.');
       nextSettings.turnSeconds = settings.turnSeconds;
     }

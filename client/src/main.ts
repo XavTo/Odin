@@ -58,6 +58,8 @@ let isAdmin = false;
 let adminPending = false;
 let openPhotosAfterAdmin = false;
 let photosVisible = read("odin-photos") !== "off";
+let customTurnSelected = false;
+const turnPresets = [15, 30, 60, 120, 0];
 let rulesOpen = false,
   rankingsOpen = false;
 let rankings: Array<{ id: string; name: string } & GameStats> = [];
@@ -205,6 +207,7 @@ socket.on("connect_error", (error) => {
   connection();
 });
 socket.on("roomLeft", () => {
+  customTurnSelected = false;
   state = null;
   selected.clear();
   draft = null;
@@ -215,6 +218,7 @@ socket.on("roomLeft", () => {
   render();
 });
 socket.on("state", (next: PublicGameState) => {
+  if (state?.roomId !== next.roomId) customTurnSelected = false;
   const sameTurn =
     state?.roomId === next.roomId &&
     state.currentPlayerId === next.currentPlayerId &&
@@ -314,7 +318,8 @@ function home(): string {
 function settings(): string {
   const s = state!;
   const disabled = !host() || busy || !ready;
-  return `<section class="panel"><h3>Options</h3><div class="settings">${game === "odin" ? `<label>Score limite<input type="number" id="max-score" min="5" max="50" value="${s.settings.maxScore}" ${disabled ? "disabled" : ""}></label><label>Couleurs<select id="color-count" ${disabled ? "disabled" : ""}>${[4, 5, 6].map((n) => `<option ${n === s.settings.colorCount ? "selected" : ""}>${n}</option>`).join("")}</select></label><p>${s.effectiveColorCount} couleurs · 9 cartes par joueur.</p>` : `<label>Temps par tour<select id="turn-seconds" ${disabled ? "disabled" : ""}>${[60, 120, 0].map((n) => `<option value="${n}" ${n === s.settings.turnSeconds ? "selected" : ""}>${n ? `${n} secondes` : "Sans limite"}</option>`).join("")}</select></label><p>À la fin du temps : pioche et fin du tour.</p>`}</div>${isAdmin ? `<button class="secondary" data-action="edit-photos" ${!ready || busy ? "disabled" : ""}>Modifier les photos</button>` : ""}</section>`;
+  const customTurn = customTurnSelected || !turnPresets.includes(s.settings.turnSeconds);
+  return `<section class="panel"><h3>Options</h3><div class="settings">${game === "odin" ? `<label>Score limite<input type="number" id="max-score" min="5" max="50" value="${s.settings.maxScore}" ${disabled ? "disabled" : ""}></label><label>Couleurs<select id="color-count" ${disabled ? "disabled" : ""}>${[4, 5, 6].map((n) => `<option ${n === s.settings.colorCount ? "selected" : ""}>${n}</option>`).join("")}</select></label><p>${s.effectiveColorCount} couleurs · 9 cartes par joueur.</p>` : `<label>Temps par tour<select id="turn-seconds" ${disabled ? "disabled" : ""}>${turnPresets.map((n) => `<option value="${n}" ${!customTurn && n === s.settings.turnSeconds ? "selected" : ""}>${n ? `${n} secondes` : "Sans limite"}</option>`).join("")}<option value="custom" ${customTurn ? "selected" : ""}>Personnalisé</option></select></label>${customTurn ? `<label>Secondes (1 à 3600)<input type="number" id="custom-turn-seconds" min="1" max="3600" step="1" value="${s.settings.turnSeconds || 60}" ${disabled ? "disabled" : ""}></label>${!disabled ? `<button class="secondary" data-action="apply-custom-turn">Appliquer</button>` : ""}` : ""}<p>À la fin du temps : pioche et fin du tour.</p>`}</div></section>`;
 }
 function room(): string {
   const s = state!;
@@ -377,7 +382,7 @@ function playArea(): string {
             : '<div class="empty-table"><span aria-hidden="true">✧</span></div>'
         }</div><p class="table-note">${s.table.length === 1 ? "Cette carte est récupérée automatiquement si votre main n’est pas vidée." : s.table.length > 1 ? "Choisissez ici la carte à récupérer. Aucune reprise si vous videz votre main." : ""}</p>`
       : `<div class="rummi-board" data-drop-row="new"><div class="board-help">${s.players.find((p) => p.id === s.you?.id)?.opened ? "Sélectionnez des tuiles, puis une position + pour les déplacer. Le glisser-déposer fonctionne aussi." : "Première pose : au moins 30 points de votre chevalet. La table existante reste intacte."}</div>${b.map((m, row) => `<div class="meld ${validMeld(m) === null ? "invalid" : ""}" data-drop-row="${row}"><span class="meld-label">${row + 1}</span><div class="meld-tiles">${m.map((t, pos) => `${slot(row, pos)}${card(t, "board", !me || busy || !canTouch(t))}`).join("")}${slot(row, m.length)}</div>${me ? `<button class="text compact" data-reverse="${row}" ${busy ? "disabled" : ""} title="Inverser l’ordre">⇄</button>` : ""}<span class="meld-status">${validMeld(m) === null ? "À compléter" : `${validMeld(m)} pts ✓`}</span></div>`).join("") || '<div class="empty-table"><span>✧</span><p>Aucune combinaison sur la table.</p></div>'}</div>`
-  }</section><section class="panel rack-panel"><div class="rack-heading"><div><h2>${game === "odin" ? "Votre main" : "Votre chevalet"} <small>${game === "odin" ? s.hand.length : rack().length}</small></h2></div><div class="toolbar">${isAdmin ? '<button class="text" data-action="edit-photos">Modifier les photos</button>' : ""}<button class="text" data-action="sort">Trier par ${sort === "color" ? "valeur" : "couleur"}</button><button class="text" data-action="photos">${photosVisible ? "Masquer" : "Afficher"} les photos</button></div></div><div class="tile-row rack" data-drop-rack="true">${
+  }</section><section class="panel rack-panel"><div class="rack-heading"><div><h2>${game === "odin" ? "Votre main" : "Votre chevalet"} <small>${game === "odin" ? s.hand.length : rack().length}</small></h2></div><div class="toolbar"><button class="text" data-action="sort">Trier par ${sort === "color" ? "valeur" : "couleur"}</button><button class="text" data-action="photos">${photosVisible ? "Masquer" : "Afficher"} les photos</button></div></div><div class="tile-row rack" data-drop-rack="true">${
     sorted(game === "odin" ? s.hand : rack())
       .map((t) => card(t, "hand", !me || busy))
       .join("") || '<p class="muted">Chevalet vide. Validez le tour.</p>'
@@ -822,13 +827,17 @@ async function action(name: string) {
     case "refresh-ranking":
       await loadRankings();
       return;
-    case "edit-photos":
-      if (ready && isAdmin)
-        photoEditor.open(
-          state?.settings.photos ?? photoLibrary,
-          state && game === "odin" ? 9 : 13,
-        );
+    case "apply-custom-turn": {
+      const input = document.querySelector<HTMLInputElement>("#custom-turn-seconds");
+      const value = input?.valueAsNumber;
+      if (value === undefined || !Number.isInteger(value) || value < 1 || value > 3600) {
+        notify("Choisissez une durée entre 1 et 3600 secondes.");
+        input?.focus();
+        return;
+      }
+      await command("updateSettings", { settings: { turnSeconds: value } });
       return;
+    }
     case "leave":
       if (
         (state?.phase === "playing" || state?.phase === "round_end") &&
@@ -880,10 +889,19 @@ app.addEventListener("input", (event) => {
 });
 app.addEventListener("change", (event) => {
   const t = event.target as HTMLInputElement;
+  if (t.id === "turn-seconds") {
+    customTurnSelected = t.value === "custom";
+    if (customTurnSelected) {
+      render();
+      document.querySelector<HTMLInputElement>("#custom-turn-seconds")?.focus();
+    } else {
+      void command("updateSettings", { settings: { turnSeconds: Number(t.value) } });
+    }
+    return;
+  }
   const keys: Record<string, string> = {
     "max-score": "maxScore",
     "color-count": "colorCount",
-    "turn-seconds": "turnSeconds",
   };
   if (keys[t.id])
     void command("updateSettings", {
