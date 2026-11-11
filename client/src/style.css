@@ -1623,7 +1623,7 @@ button.info-close:hover:not(:disabled) { background: #4b5d4b; color: #fff; }
 }
 body {
   background:
-    linear-gradient(135deg, rgba(197, 234, 239, .88), rgba(247, 234, 206, .84)),
+    linear-gradient(135deg, rgba(197, 234, 239, .38), rgba(247, 234, 206, .34)),
     var(--app-background, none) center/cover fixed;
 }
 h1, h2, h3 { color: #123f50; }
@@ -1641,7 +1641,7 @@ input, select { background: #fffefa; color: #183f4c; border-color: #a4c8ca; }
 input::placeholder { color: #60848b; opacity: 1; }
 input:hover:not(:disabled), select:hover:not(:disabled), input:focus-visible, select:focus-visible { border-color: #17849a; }
 .hero { border-color: #45839155; }
-.hero h1 { text-shadow: 0 1px 10px #ffffff90; }
+.hero h1 { text-shadow: 0 1px 8px #fffffff2, 0 0 22px #ffffffc9; }
 #connection { color: #285c6b; }
 .panel, .table-panel { box-shadow: 0 9px 30px #235b701a; }
 .game-choice { background: linear-gradient(135deg, #e3f7f5, #f8f1df); color: #143f4d; border-color: #8cbec3; box-shadow: 0 7px 22px #235b7016; }
