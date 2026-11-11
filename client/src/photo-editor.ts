@@ -1,5 +1,6 @@
+import { cropImage } from "./image-cropper";
+
 export type Photos = Record<string, string>;
-const MAX_BYTES = 120000;
 export function photoFor(photos: Photos, value: number, game: "odin" | "rummikub" = "odin"): string {
   return (
     (game === "rummikub" ? photos[`r${value}`] : undefined) ||
@@ -142,28 +143,6 @@ export class PhotoEditor {
     this.message = "";
     this.render();
   }
-  private async resize(file: File, background = false): Promise<string> {
-    if (!file.type.startsWith("image/") || file.size > 20 * 1024 * 1024)
-      throw new Error("Choisissez des images de moins de 20 Mo.");
-    const bitmap = await createImageBitmap(file);
-    try {
-      const canvas = document.createElement("canvas");
-      const scale = Math.min(1, (background ? 1920 : 480) / Math.max(bitmap.width, bitmap.height));
-      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
-      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
-      canvas
-        .getContext("2d")!
-        .drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      const format = file.type === "image/jpeg" ? "image/jpeg" : "image/webp";
-      for (const quality of [0.75, 0.6, 0.4]) {
-        const image = canvas.toDataURL(format, quality);
-        if (image.length <= (background ? 500000 : MAX_BYTES)) return image;
-      }
-      throw new Error("Image trop volumineuse.");
-    } finally {
-      bitmap.close();
-    }
-  }
   private async importFiles(files: File[], value?: number) {
     if (this.pending) return;
     if (files.length > this.count) {
@@ -189,8 +168,10 @@ export class PhotoEditor {
         this.message = `${i + 1} / ${files.length}`;
         this.dialog.querySelector(".photo-editor-message")!.textContent =
           this.message;
-        next[this.key(value ?? (useNumbers ? numbered[i] : i + 1))] =
-          await this.resize(file);
+        const number = value ?? (useNumbers ? numbered[i] : i + 1);
+        const image = await cropImage(file, false, `Photo ${number} · ${i + 1} / ${files.length}`);
+        if (image === null) { this.message = "Import annulé."; return; }
+        next[this.key(number)] = image;
       }
       this.photos = next;
       this.message = "";
@@ -204,7 +185,10 @@ export class PhotoEditor {
   private async importBackground(file: File) {
     if (this.pending) return;
     this.pending = true; this.message = ""; this.render();
-    try { this.photos.background = await this.resize(file, true); }
+    try {
+      const image = await cropImage(file, true, "Fond d’écran");
+      if (image !== null) this.photos.background = image;
+    }
     catch (e) { this.message = e instanceof Error ? e.message : "Image illisible."; }
     finally { this.pending = false; this.render(); }
   }
