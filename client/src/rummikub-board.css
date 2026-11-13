@@ -296,6 +296,13 @@ body.rummikub-playing #connection:not([hidden]) {
   padding: 4px 8px;
   font-size: 0.74rem;
 }
+.rm-toolbar .rm-single-tile {
+  min-height: 36px;
+  color: #173e51;
+  background: #ffedbc;
+  border-color: #987138;
+  white-space: nowrap;
+}
 .rm-toolbar .rm-deck {
   display: inline-flex;
   gap: 6px;

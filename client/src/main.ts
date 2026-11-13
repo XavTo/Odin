@@ -349,8 +349,7 @@ function rackTiles(): Card[] {
   }
   return [...ordered, ...byId.values()];
 }
-function rackRun(firstId: string): string[] {
-  const tiles = rackTiles();
+function rackRun(firstId: string, tiles = rackTiles()): string[] {
   const first = tiles.find((tile) => tile.id === firstId);
   if (!first || first.joker) return [];
   const byValue = new Map<number, Card>();
@@ -496,7 +495,13 @@ function rummikubStage(s: PublicGameState): string {
   const opened = s.players.find((player) => player.id === s.you?.id)?.opened;
   const groups = s.preview ?? board();
   const hasInvalid = groups.some((group) => validMeld(group) === null);
-  const placed = s.hand.length - rack().length;
+  const tiles = rackTiles();
+  const placed = s.hand.length - tiles.length;
+  const runHead = editable && selected.size > 1 ? tiles.find((tile) => {
+    if (!selected.has(tile.id)) return false;
+    const run = rackRun(tile.id, tiles);
+    return run.length > 0 && run.every((id) => selected.has(id));
+  }) : undefined;
   const openingPoints = opened ? 0 : groups
     .filter((group) => group.every((tile) => s.hand.some((handTile) => handTile.id === tile.id)))
     .reduce((sum, group) => sum + (validMeld(group) ?? 0), 0);
@@ -546,9 +551,10 @@ function rummikubStage(s: PublicGameState): string {
         <button class="secondary compact" data-action="undo" ${editable && undoStack.length ? "" : "disabled"}>Annuler</button>
         <button class="secondary compact" data-action="reset" ${editable && draft ? "" : "disabled"}>Rétablir</button>
         <button class="secondary compact" data-action="sort" aria-label="Trier le chevalet par ${sort === "color" ? "valeur" : "couleur"}">Trier</button>
+        ${runHead ? `<button type="button" class="secondary compact rm-single-tile" data-rm-single="${esc(runHead.id)}" aria-label="Sélectionner uniquement le ${runHead.value} ${colors[runHead.color].toLowerCase()}">${runHead.value} seul</button>` : ""}
         <button class="compact" data-action="validate" ${canValidate ? "" : "disabled"}>Valider</button>
       </div>
-      <div class="rm-rack" aria-label="Votre chevalet">${rackTiles().map((tile) => card(tile, "hand", !ready || busy)).join("")}</div>
+      <div class="rm-rack" aria-label="Votre chevalet">${tiles.map((tile) => card(tile, "hand", !ready || busy)).join("")}</div>
     </div>
   </section>`;
 }
@@ -621,7 +627,7 @@ function canPlaceGroup(tiles: Card[]): boolean {
   return first.color === second.color && second.value - first.value >= 1 && second.value - first.value <= 2;
 }
 function rules(): string {
-  return `<section class="rules">${game === "odin" ? "<p>9 cartes par joueur. Ouvrez avec une carte, puis posez une combinaison de même couleur ou même valeur, de valeur supérieure : même nombre de cartes ou une de plus. Les chiffres forment le plus grand nombre possible (8 et 2 = 82).</p><p>Après une pose, récupérez une carte de la table précédente, sauf si vous videz votre main. Passer n’empêche pas de rejouer plus tard. Quand tous les autres passent, le dernier à jouer ouvre le pli suivant.</p><p>Une main vidée ou entièrement de même couleur/valeur à l’ouverture d’un pli termine la manche. Les autres marquent un point par carte. À la limite de score, le plus petit total gagne.</p>" : '<p>106 tuiles, dont 2 jokers. Chacun reçoit 14 tuiles. Posez des groupes de 3 ou 4 valeurs identiques de couleurs différentes, ou des suites d’au moins 3 valeurs consécutives de même couleur. Le 1 ne suit jamais le 13.</p><p>Votre première pose doit valoir au moins 30 points, uniquement avec votre chevalet. Vous pourrez réorganiser la table aux tours suivants. Un joker représente la tuile qu’il remplace ; il reste sur la table et peut être réutilisé dans une combinaison valide.</p><p>Chaque tour : posez au moins une tuile, ou piochez et passez. Toutes les combinaisons doivent être valides en fin de tour. Videz votre chevalet pour gagner. Un joker restant coûte 30 points. Si la pioche est vide et tout le monde passe, le plus petit chevalet gagne.</p><p>Glissez une tuile sur un groupe pour l’ajouter ou sur la table pour créer un groupe. Vous pouvez aussi sélectionner des tuiles puis cliquer sur le groupe. Cliquez sur la première tuile d’une suite du chevalet pour sélectionner la suite entière. Maj + clic permet de sélectionner les tuiles une à une. Le bouton + crée un groupe avec la sélection. La poignée déplace un groupe entier et le point entre deux tuiles le scinde. Les autres joueurs voient vos poses provisoires. « Annuler » revient d’un geste en arrière et « Valider » termine le tour.</p><a href="https://rummikub.com/rules/" target="_blank" rel="noopener">Consulter les règles classiques officielles ↗</a>'}</section>`;
+  return `<section class="rules">${game === "odin" ? "<p>9 cartes par joueur. Ouvrez avec une carte, puis posez une combinaison de même couleur ou même valeur, de valeur supérieure : même nombre de cartes ou une de plus. Les chiffres forment le plus grand nombre possible (8 et 2 = 82).</p><p>Après une pose, récupérez une carte de la table précédente, sauf si vous videz votre main. Passer n’empêche pas de rejouer plus tard. Quand tous les autres passent, le dernier à jouer ouvre le pli suivant.</p><p>Une main vidée ou entièrement de même couleur/valeur à l’ouverture d’un pli termine la manche. Les autres marquent un point par carte. À la limite de score, le plus petit total gagne.</p>" : '<p>106 tuiles, dont 2 jokers. Chacun reçoit 14 tuiles. Posez des groupes de 3 ou 4 valeurs identiques de couleurs différentes, ou des suites d’au moins 3 valeurs consécutives de même couleur. Le 1 ne suit jamais le 13.</p><p>Votre première pose doit valoir au moins 30 points, uniquement avec votre chevalet. Vous pourrez réorganiser la table aux tours suivants. Un joker représente la tuile qu’il remplace ; il reste sur la table et peut être réutilisé dans une combinaison valide.</p><p>Chaque tour : posez au moins une tuile, ou piochez et passez. Toutes les combinaisons doivent être valides en fin de tour. Videz votre chevalet pour gagner. Un joker restant coûte 30 points. Si la pioche est vide et tout le monde passe, le plus petit chevalet gagne.</p><p>Glissez une tuile sur un groupe pour l’ajouter ou sur la table pour créer un groupe. Vous pouvez aussi sélectionner des tuiles puis cliquer sur le groupe. Cliquez sur la première tuile d’une suite du chevalet pour sélectionner la suite entière. Le bouton « 5 seul », par exemple, garde uniquement le 5 sélectionné. Maj + clic sélectionne les tuiles une à une. Le bouton + crée un groupe avec la sélection. La poignée déplace un groupe entier et le point entre deux tuiles le scinde. Les autres joueurs voient vos poses provisoires. « Annuler » revient d’un geste en arrière et « Valider » termine le tour.</p><a href="https://rummikub.com/rules/" target="_blank" rel="noopener">Consulter les règles classiques officielles ↗</a>'}</section>`;
 }
 function ranking(): string {
   return `<section class="ranking"><div class="section-heading"><span></span><button class="text" data-action="refresh-ranking">Actualiser ↻</button></div><p class="muted">Profil enregistré dans ce navigateur.</p>${rankingLoading ? '<p role="status">Chargement…</p>' : rankingError ? `<p role="alert">${esc(rankingError)}</p>` : rankings.length ? `<div class="ranking-scroll"><table><thead><tr><th>Place</th><th>Joueur</th><th>Elo</th><th>Victoires</th><th>Parties</th></tr></thead><tbody>${rankings.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td><strong>${r.rating}</strong></td><td>${r.wins}${r.draws ? ` (+${r.draws} ex æquo)` : ""}</td><td>${r.played}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty-ranking">Aucune partie terminée.</div>'}</section>`;
@@ -1253,6 +1259,14 @@ app.addEventListener("click", (event) => {
     rankings = [];
     render();
     if (rankingsOpen) void loadRankings();
+    return;
+  }
+  if (t.dataset.rmSingle && yourTurn() && !busy && selected.has(t.dataset.rmSingle)) {
+    const tileId = t.dataset.rmSingle;
+    selected = new Set([tileId]);
+    playSound("select", true);
+    render();
+    content.querySelector<HTMLButtonElement>(`.rm-rack [data-tile="${CSS.escape(tileId)}"]`)?.focus({ preventScroll: true });
     return;
   }
   if (t.dataset.tile && yourTurn() && !busy) {
