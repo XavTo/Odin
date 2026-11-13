@@ -44,6 +44,12 @@ export function targetAt(
         : tile.dataset.tile;
     return { element: tile, target: { kind: "rack", before } };
   }
+  for (const meld of hit.querySelectorAll<HTMLElement>("[data-rm-end]")) {
+    const bounds = meld.getBoundingClientRect();
+    if (y < bounds.top || y > bounds.bottom || x <= bounds.right || x - bounds.right > 12) continue;
+    const [row, index] = meld.dataset.rmEnd!.split(":").map(Number);
+    return { element: meld, target: { kind: "meld", row, index } };
+  }
   return {
     element: hit,
     target: { kind: "new", index: Number(hit.dataset.rmCount) },
@@ -181,7 +187,15 @@ export function enableTileDragging(
   return clear;
 }
 
-export function fitRummikub(stage: HTMLElement): () => void {
+interface BoardLayout {
+  width: number;
+  height: number;
+  size: number;
+  rows: number[];
+  scrollTop: number;
+}
+
+export function fitRummikub(stage: HTMLElement, previous?: BoardLayout) {
   const table = stage.querySelector<HTMLElement>(".rm-table")!;
   const rack = stage.querySelector<HTMLElement>(".rm-rack")!;
   const groups = table.querySelector<HTMLElement>(".rm-groups")!;
@@ -192,6 +206,22 @@ export function fitRummikub(stage: HTMLElement): () => void {
 
   const availableHeight = () =>
     table.clientHeight - groups.offsetTop - parseFloat(getComputedStyle(table).paddingBottom);
+
+  function setRows(rows: HTMLElement[][]) {
+    groups.classList.add("rm-spread");
+    groups.replaceChildren(...rows.map((items) => {
+      const row = document.createElement("div");
+      row.className = "rm-board-row";
+      row.append(...items);
+      return row;
+    }));
+  }
+
+  function clearRows() {
+    if (!groups.classList.contains("rm-spread")) return;
+    groups.classList.remove("rm-spread");
+    groups.replaceChildren(...slots);
+  }
 
   function spreadGroups() {
     const width = groups.clientWidth;
@@ -233,19 +263,10 @@ export function fitRummikub(stage: HTMLElement): () => void {
       spareHeight -= best.cost;
     }
 
-    const rows = packed.map((items) => {
-      const row = document.createElement("div");
-      row.className = "rm-board-row";
-      row.append(...items.map((item) => item.element));
-      return row;
-    });
-    groups.classList.add("rm-spread");
-    groups.replaceChildren(...rows);
-    if (groups.offsetHeight > availableHeight() + 1) {
-      groups.classList.remove("rm-spread");
-      groups.replaceChildren(...slots);
-    }
+    setRows(packed.map((row) => row.map((item) => item.element)));
+    if (groups.offsetHeight > availableHeight() + 1) clearRows();
   }
+
   const count = rack.querySelectorAll("[data-tile]").length;
 
   const setBoardSize = (size: number) => table.style.setProperty("--board-tile", `${size}px`);
@@ -285,26 +306,55 @@ export function fitRummikub(stage: HTMLElement): () => void {
   function fit() {
     const focused = document.activeElement;
     fitRack();
-    if (groups.classList.contains("rm-spread")) {
-      groups.classList.remove("rm-spread");
-      groups.replaceChildren(...slots);
+    clearRows();
+
+    // Keep the existing positions through turn changes and draws if the viewport still fits them.
+    const saved = previous?.width === stage.clientWidth && previous.height === stage.clientHeight
+      ? previous
+      : undefined;
+    setBoardSize(saved?.size ?? minBoardTile);
+    if (saved?.rows.length) {
+      let first = 0;
+      setRows(saved.rows.map((count) => {
+        const row = slots.slice(first, first + count);
+        first += count;
+        return row;
+      }));
     }
-    // Leave enough room for the board before maximizing its tile size.
-    setBoardSize(minBoardTile);
     const missingHeight = groups.offsetHeight - availableHeight();
     if (missingHeight > 1) {
       const style = getComputedStyle(rack);
       const rackHeight = rack.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
       fitRack(rackHeight - missingHeight);
     }
-    fitBoardTiles();
-    if (stage.clientWidth >= 720 && slots.length > 2) spreadGroups();
+    if (saved && groups.offsetHeight <= availableHeight() + 1) {
+      table.scrollTop = saved.scrollTop;
+    } else {
+      clearRows();
+      fitBoardTiles();
+      if (stage.clientWidth >= 720 && slots.length > 2) spreadGroups();
+    }
     if (focused instanceof HTMLElement && groups.contains(focused) && focused !== document.activeElement)
       focused.focus({ preventScroll: true });
   }
+
+  const layout = (): BoardLayout => ({
+    width: stage.clientWidth,
+    height: stage.clientHeight,
+    size: parseInt(table.style.getPropertyValue("--board-tile"), 10),
+    rows: groups.classList.contains("rm-spread")
+      ? Array.from(groups.children, (row) => row.childElementCount)
+      : [],
+    scrollTop: table.scrollTop,
+  });
+
   fit();
-  const observer = new ResizeObserver(fit);
+  previous = layout();
+  const observer = new ResizeObserver(() => {
+    fit();
+    previous = layout();
+  });
   observer.observe(stage);
   observer.observe(table);
-  return () => observer.disconnect();
+  return { layout, disconnect: () => observer.disconnect() };
 }

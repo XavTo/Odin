@@ -1368,6 +1368,14 @@ dialog p {
   aspect-ratio: 3/4;
   overflow: hidden;
 }
+.photo-editor-joker {
+  display: grid;
+  place-items: center;
+}
+.photo-editor-joker b {
+  color: #164c5b;
+  font-size: 2.3rem;
+}
 .photo-editor-picture img {
   width: 100%;
   height: 100%;

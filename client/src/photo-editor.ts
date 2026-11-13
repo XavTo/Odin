@@ -2,6 +2,7 @@ import { cropImage } from "./image-cropper";
 
 export type Photos = Record<string, string>;
 export function photoFor(photos: Photos, value: number, game: "odin" | "rummikub" = "odin"): string {
+  if (value === 0) return game === "rummikub" ? photos.joker ?? "" : "";
   return (
     (game === "rummikub" ? photos[`c${value}`] || photos[`r${value}`] : undefined) ||
     photos[value] ||
@@ -15,7 +16,10 @@ export class PhotoEditor {
   private original: Photos = {};
   private count = 9;
   private section: "odin" | "rummikub" | "background" = "odin";
-  private key(value: number): string { return this.section === "rummikub" ? `r${value}` : String(value); }
+  private key(value: number): string {
+    if (this.section !== "rummikub") return String(value);
+    return value === 0 ? "joker" : `r${value}`;
+  }
   private pending = false;
   private message = "";
   private dragValue: number | null = null;
@@ -38,7 +42,13 @@ export class PhotoEditor {
       if (action === "close") this.dialog.close();
       if (action === "reset") {
         if (this.section === "background") delete this.photos.background;
-        else for (let n = 1; n <= this.count; n++) { delete this.photos[this.key(n)]; if (this.section === "rummikub") delete this.photos[`c${n}`]; }
+        else {
+          for (let n = 1; n <= this.count; n++) {
+            delete this.photos[this.key(n)];
+            if (this.section === "rummikub") delete this.photos[`c${n}`];
+          }
+          if (this.section === "rummikub") delete this.photos.joker;
+        }
         this.message = "";
         this.render();
       }
@@ -129,9 +139,20 @@ export class PhotoEditor {
       },
     ).join(
       "",
-    )}</div>`}<div class="photo-editor-footer"><p role="status" class="photo-editor-message"></p><button data-photo-action="save" ${this.pending ? "disabled" : ""}>${this.pending ? "En cours…" : "Enregistrer"}</button></div>`;
+    )}${this.section === "rummikub" ? this.jokerSlot() : ""}</div>`}<div class="photo-editor-footer"><p role="status" class="photo-editor-message"></p><button data-photo-action="save" ${this.pending ? "disabled" : ""}>${this.pending ? "En cours…" : "Enregistrer"}</button></div>`;
     this.dialog.querySelector(".photo-editor-message")!.textContent =
       this.message;
+  }
+  private jokerSlot(): string {
+    const photo = photoFor(this.photos, 0, "rummikub");
+    return `<article class="photo-editor-slot" data-photo-slot="0">
+      <label class="photo-editor-picture photo-editor-joker">
+        ${photo ? `<img src="${photo}" alt="Photo du joker" draggable="false">` : '<b aria-hidden="true">★</b>'}
+        <input type="file" accept="image/*,.heic,.heif" data-value="0" aria-label="Changer la photo du joker" ${this.pending ? "disabled" : ""}>
+        <span>Joker</span>
+      </label>
+      <div class="photo-editor-controls"><button class="text" data-photo-action="restore" data-value="0" aria-label="Rétablir le joker d’origine" ${this.pending || !photo ? "disabled" : ""}>↺</button></div>
+    </article>`;
   }
   private swap(from: number, to: number) {
     if (to < 1 || to > this.count || from === to || this.pending) return;
@@ -177,7 +198,8 @@ export class PhotoEditor {
         this.dialog.querySelector(".photo-editor-message")!.textContent =
           this.message;
         const number = value ?? (useNumbers ? numbered[i] : i + 1);
-        const image = await cropImage(file, false, `Photo ${number} · ${i + 1} / ${files.length}`);
+        const label = number === 0 ? "Photo du joker" : `Photo ${number}`;
+        const image = await cropImage(file, false, `${label} · ${i + 1} / ${files.length}`);
         if (image === null) { this.message = "Import annulé."; return; }
         next[this.key(number)] = image;
         if (this.section === "rummikub") delete next[`c${number}`];

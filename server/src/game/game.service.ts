@@ -341,7 +341,7 @@ export class GameService implements OnModuleDestroy {
     const photos: Record<string, string> = {};
     for (const [value, url] of Object.entries(input)) {
       if (
-        !/^(?:(?:r|c)?(?:[1-9]|1[0-3])|background)$/.test(value) ||
+        !/^(?:(?:r|c)?(?:[1-9]|1[0-3])|joker|background)$/.test(value) ||
         typeof url !== 'string' ||
         url.length > (value === 'background' ? 500000 : 120000) ||
         !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(url)

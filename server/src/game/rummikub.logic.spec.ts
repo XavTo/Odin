@@ -35,6 +35,13 @@ describe('Rummikub rules', () => {
     expect(meldValue([joker, tile(1), tile(2)])).toBeNull();
     expect(rackValue([joker, tile(5)])).toBe(35);
   });
+  it('accepts a third distinct color in a group containing a joker', () => {
+    const row = [tile(5), tile(5, 'blue'), joker];
+    const black = tile(5, 'black');
+    const proposed = [[...row, black].map((t) => t.id)];
+    expect(validateBoard([row], [black], proposed, true).nextHand).toEqual([]);
+    expect(meldValue([...row, tile(5, 'red', 1)])).toBeNull();
+  });
   it('requires 30 rack points for opening and leaves inputs untouched on rejection', () => {
     const hand = [tile(8), tile(8, 'blue'), tile(8, 'black')];
     expect(() =>

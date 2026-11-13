@@ -147,8 +147,17 @@ body.rummikub-playing #connection:not([hidden]) {
   border-radius: 12px;
   border: 1px solid #679bac;
 }
+.rm-table-status {
+  display: flex;
+  gap: 10px;
+  height: 1.15rem;
+  overflow: hidden;
+}
 .rm-table .rm-message {
-  margin: 0 0 4px;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: #f5fcff;
   font-size: 0.74rem;
 }
@@ -227,6 +236,9 @@ body.rummikub-playing #connection:not([hidden]) {
 .rm-group {
   touch-action: none;
   cursor: grab;
+}
+.rm-meld .rm-group:disabled {
+  visibility: hidden;
 }
 .rm-meld .rm-group {
   padding: 0 3px;

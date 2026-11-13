@@ -66,6 +66,7 @@ describe('Persistent multiplayer games', () => {
       r1: 'data:image/webp;base64,Yg==',
       r13: 'data:image/jpeg;base64,Yw==',
       c13: 'data:image/webp;base64,ZA==',
+      joker: 'data:image/webp;base64,YQ==',
       background: 'data:image/webp;base64,ZA==',
     };
     service.savePhotos(photos);
