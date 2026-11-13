@@ -270,8 +270,11 @@ body.rummikub-playing #connection:not([hidden]) {
   outline: 2px solid #ffd484 !important;
   outline-offset: 1px;
 }
-.rm-position.rm-drop-target {
-  background: #e5b457a8;
+.rm-meld.can-insert:hover {
+  border-color: #ffd484;
+}
+.rm-meld.rm-drop-target {
+  background: #825d33;
 }
 .rm-dock {
   display: grid;

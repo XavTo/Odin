@@ -3,6 +3,18 @@ export type DropTarget =
   | { kind: "new"; index: number }
   | { kind: "rack"; before?: string };
 
+export function meldTarget(element: HTMLElement, x?: number): Extract<DropTarget, { kind: "meld" }> | null {
+  const hit = element.closest<HTMLElement>("[data-rm-gap], [data-rm-position], [data-rm-end]");
+  const position = hit?.dataset.rmGap ?? hit?.dataset.rmPosition ?? hit?.dataset.rmEnd;
+  if (!hit || !position) return null;
+  const [row, index] = position.split(":").map(Number);
+  if (hit.dataset.rmPosition && x !== undefined) {
+    const { left, width } = hit.getBoundingClientRect();
+    return { kind: "meld", row, index: index + Number(x >= left + width / 2) };
+  }
+  return { kind: "meld", row, index };
+}
+
 export function targetAt(
   x: number,
   y: number,
@@ -12,28 +24,13 @@ export function targetAt(
     "[data-rm-gap], [data-rm-new], [data-rm-position], [data-rm-end], .rm-rack, .rm-table",
   );
   if (!hit) return null;
-  if (hit.dataset.rmGap) {
-    const [row, index] = hit.dataset.rmGap.split(":").map(Number);
-    return { element: hit, target: { kind: "meld", row, index } };
-  }
+  const meld = meldTarget(hit, x);
+  if (meld) return { element: hit.closest<HTMLElement>("[data-rm-end]")!, target: meld };
   if (hit.dataset.rmNew !== undefined)
     return {
       element: hit,
       target: { kind: "new", index: Number(hit.dataset.rmNew) },
     };
-  if (hit.dataset.rmPosition) {
-    const rect = hit.getBoundingClientRect();
-    const after = x > rect.left + rect.width / 2;
-    const [row, index] = hit.dataset.rmPosition.split(":").map(Number);
-    return {
-      element: hit,
-      target: { kind: "meld", row, index: index + Number(after) },
-    };
-  }
-  if (hit.dataset.rmEnd) {
-    const [row, index] = hit.dataset.rmEnd.split(":").map(Number);
-    return { element: hit, target: { kind: "meld", row, index } };
-  }
   if (hit.classList.contains("rm-rack")) {
     const tile = pointer?.closest<HTMLElement>("[data-tile]");
     if (!tile) return { element: hit, target: { kind: "rack" } };
@@ -47,8 +44,7 @@ export function targetAt(
   for (const meld of hit.querySelectorAll<HTMLElement>("[data-rm-end]")) {
     const bounds = meld.getBoundingClientRect();
     if (y < bounds.top || y > bounds.bottom || x <= bounds.right || x - bounds.right > 12) continue;
-    const [row, index] = meld.dataset.rmEnd!.split(":").map(Number);
-    return { element: meld, target: { kind: "meld", row, index } };
+    return { element: meld, target: meldTarget(meld)! };
   }
   return {
     element: hit,
@@ -149,7 +145,7 @@ export function enableTileDragging(
         highlight = target?.element ?? null;
         highlight?.classList.add("rm-drop-target");
       }
-      if (highlight?.matches(".rm-position, [data-tile]")) {
+      if (highlight?.matches("[data-tile]")) {
         const rect = highlight.getBoundingClientRect();
         const after = event.clientX >= rect.left + rect.width / 2;
         highlight.classList.toggle("rm-drop-after", after);

@@ -1,6 +1,6 @@
 import "./style.css";
 import "./rummikub-board.css";
-import { enableTileDragging, fitRummikub } from "./rummikub-board";
+import { enableTileDragging, fitRummikub, meldTarget } from "./rummikub-board";
 import type { DropTarget } from "./rummikub-board";
 import { playSound, prepareSound, soundEnabled, toggleSound } from "./sounds";
 import { PhotoEditor, photoFor } from "./photo-editor";
@@ -530,7 +530,7 @@ function rummikubStage(s: PublicGameState): string {
       ${groups.map((group, row) => {
         const unlocked = editable && group.every(canTouch);
         const gap = (index: number) => `<button type="button" class="rm-gap" data-rm-gap="${row}:${index}" aria-label="${selected.size ? "Insérer" : "Scinder"} au rang ${index + 1} du groupe ${row + 1}" ${unlocked && (selected.size || (index > 0 && index < group.length)) ? "" : "disabled"}>${selected.size ? "+" : "·"}</button>`;
-        return `<div class="rm-group-slot">${newTarget(row)}<div data-rm-end="${row}:${group.length}" class="rm-meld ${validMeld(group) === null ? "invalid" : ""} ${s.preview ? "is-preview" : ""}">
+        return `<div class="rm-group-slot">${newTarget(row)}<div data-rm-end="${row}:${group.length}" class="rm-meld ${unlocked && selected.size ? "can-insert" : ""} ${validMeld(group) === null ? "invalid" : ""} ${s.preview ? "is-preview" : ""}">
           <button type="button" class="rm-group" data-rm-group="${row}" aria-label="Déplacer le groupe ${row + 1}" ${unlocked ? "" : "disabled"}>⠿</button>
           ${group.map((tile, index) => `<span class="rm-position" data-rm-position="${row}:${index}">${gap(index)}${card(tile, "board", !unlocked)}</span>`).join("")}${gap(group.length)}
         </div></div>`;
@@ -621,7 +621,7 @@ function canPlaceGroup(tiles: Card[]): boolean {
   return first.color === second.color && second.value - first.value >= 1 && second.value - first.value <= 2;
 }
 function rules(): string {
-  return `<section class="rules">${game === "odin" ? "<p>9 cartes par joueur. Ouvrez avec une carte, puis posez une combinaison de même couleur ou même valeur, de valeur supérieure : même nombre de cartes ou une de plus. Les chiffres forment le plus grand nombre possible (8 et 2 = 82).</p><p>Après une pose, récupérez une carte de la table précédente, sauf si vous videz votre main. Passer n’empêche pas de rejouer plus tard. Quand tous les autres passent, le dernier à jouer ouvre le pli suivant.</p><p>Une main vidée ou entièrement de même couleur/valeur à l’ouverture d’un pli termine la manche. Les autres marquent un point par carte. À la limite de score, le plus petit total gagne.</p>" : '<p>106 tuiles, dont 2 jokers. Chacun reçoit 14 tuiles. Posez des groupes de 3 ou 4 valeurs identiques de couleurs différentes, ou des suites d’au moins 3 valeurs consécutives de même couleur. Le 1 ne suit jamais le 13.</p><p>Votre première pose doit valoir au moins 30 points, uniquement avec votre chevalet. Vous pourrez réorganiser la table aux tours suivants. Un joker représente la tuile qu’il remplace ; il reste sur la table et peut être réutilisé dans une combinaison valide.</p><p>Chaque tour : posez au moins une tuile, ou piochez et passez. Toutes les combinaisons doivent être valides en fin de tour. Videz votre chevalet pour gagner. Un joker restant coûte 30 points. Si la pioche est vide et tout le monde passe, le plus petit chevalet gagne.</p><p>Glissez une tuile sur la table pour créer un groupe ou entre deux tuiles pour l’insérer. Cliquez sur la première tuile d’une suite du chevalet pour sélectionner la suite entière. Maj + clic permet de sélectionner les tuiles une à une. Vous pouvez aussi sélectionner des tuiles puis utiliser les boutons +. La poignée déplace un groupe entier et le point entre deux tuiles le scinde. Les autres joueurs voient vos poses provisoires. « Annuler » revient d’un geste en arrière et « Valider » termine le tour.</p><a href="https://rummikub.com/rules/" target="_blank" rel="noopener">Consulter les règles classiques officielles ↗</a>'}</section>`;
+  return `<section class="rules">${game === "odin" ? "<p>9 cartes par joueur. Ouvrez avec une carte, puis posez une combinaison de même couleur ou même valeur, de valeur supérieure : même nombre de cartes ou une de plus. Les chiffres forment le plus grand nombre possible (8 et 2 = 82).</p><p>Après une pose, récupérez une carte de la table précédente, sauf si vous videz votre main. Passer n’empêche pas de rejouer plus tard. Quand tous les autres passent, le dernier à jouer ouvre le pli suivant.</p><p>Une main vidée ou entièrement de même couleur/valeur à l’ouverture d’un pli termine la manche. Les autres marquent un point par carte. À la limite de score, le plus petit total gagne.</p>" : '<p>106 tuiles, dont 2 jokers. Chacun reçoit 14 tuiles. Posez des groupes de 3 ou 4 valeurs identiques de couleurs différentes, ou des suites d’au moins 3 valeurs consécutives de même couleur. Le 1 ne suit jamais le 13.</p><p>Votre première pose doit valoir au moins 30 points, uniquement avec votre chevalet. Vous pourrez réorganiser la table aux tours suivants. Un joker représente la tuile qu’il remplace ; il reste sur la table et peut être réutilisé dans une combinaison valide.</p><p>Chaque tour : posez au moins une tuile, ou piochez et passez. Toutes les combinaisons doivent être valides en fin de tour. Videz votre chevalet pour gagner. Un joker restant coûte 30 points. Si la pioche est vide et tout le monde passe, le plus petit chevalet gagne.</p><p>Glissez une tuile sur un groupe pour l’ajouter ou sur la table pour créer un groupe. Vous pouvez aussi sélectionner des tuiles puis cliquer sur le groupe. Cliquez sur la première tuile d’une suite du chevalet pour sélectionner la suite entière. Maj + clic permet de sélectionner les tuiles une à une. Le bouton + crée un groupe avec la sélection. La poignée déplace un groupe entier et le point entre deux tuiles le scinde. Les autres joueurs voient vos poses provisoires. « Annuler » revient d’un geste en arrière et « Valider » termine le tour.</p><a href="https://rummikub.com/rules/" target="_blank" rel="noopener">Consulter les règles classiques officielles ↗</a>'}</section>`;
 }
 function ranking(): string {
   return `<section class="ranking"><div class="section-heading"><span></span><button class="text" data-action="refresh-ranking">Actualiser ↻</button></div><p class="muted">Profil enregistré dans ce navigateur.</p>${rankingLoading ? '<p role="status">Chargement…</p>' : rankingError ? `<p role="alert">${esc(rankingError)}</p>` : rankings.length ? `<div class="ranking-scroll"><table><thead><tr><th>Place</th><th>Joueur</th><th>Elo</th><th>Victoires</th><th>Parties</th></tr></thead><tbody>${rankings.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td><strong>${r.rating}</strong></td><td>${r.wins}${r.draws ? ` (+${r.draws} ex æquo)` : ""}</td><td>${r.played}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty-ranking">Aucune partie terminée.</div>'}</section>`;
@@ -717,6 +717,20 @@ function applyDraft(next: Card[][]) {
   publishDraft();
   render();
 }
+function insertInGroup(group: Card[], moving: Card[], preferred: number, autoPlace: boolean): Card[] | undefined {
+  const at = (index: number) => [...group.slice(0, index), ...moving, ...group.slice(index)];
+  const preferredGroup = at(preferred);
+  if (canPlaceGroup(preferredGroup)) return preferredGroup;
+  if (!autoPlace) return;
+
+  for (let distance = 1; distance <= group.length; distance++) {
+    for (const index of [preferred - distance, preferred + distance]) {
+      if (index < 0 || index > group.length) continue;
+      const candidate = at(index);
+      if (canPlaceGroup(candidate)) return candidate;
+    }
+  }
+}
 function placeTiles(ids: string[], target: DropTarget) {
   if (!ready || busy || !state || state.phase !== "playing" || !ids.length) return;
   if (target.kind !== "rack" && !yourTurn()) return;
@@ -738,11 +752,12 @@ function placeTiles(ids: string[], target: DropTarget) {
   if (target.kind === "meld") {
     const insertAt = before[target.row].slice(0, target.index).filter((tile) => !movingIds.has(tile.id)).length;
     const group = next[target.row];
-    group.splice(insertAt, 0, ...moving);
-    if (!canPlaceGroup(group)) {
+    const inserted = insertInGroup(group, moving, insertAt, group.length + moving.length > before[target.row].length);
+    if (!inserted) {
       notify("Cette pose ne forme pas une combinaison valide.");
       return;
     }
+    next[target.row] = inserted;
   } else if (target.kind === "new") {
     const fromRack = moving.every((tile) => !before.some((group) => group.some((item) => item.id === tile.id)));
     const ordered = fromRack ? orderNewGroup(moving) : moving;
@@ -1212,10 +1227,21 @@ app.addEventListener("keydown", (event) => {
 });
 app.addEventListener("click", prepareSound, { once: true });
 app.addEventListener("click", (event) => {
-  const t = (event.target as HTMLElement).closest<HTMLElement>(
-    "button, .rm-rack",
-  );
+  const clicked = event.target as HTMLElement;
+  const t = clicked.closest<HTMLElement>("button, .rm-rack, .rm-meld");
   if (!t || (t as HTMLButtonElement).disabled) return;
+  if (game === "rummikub" && yourTurn() && !busy && selected.size && !event.shiftKey) {
+    const target = meldTarget(clicked, event.detail ? event.clientX : undefined);
+    if (target) {
+      const group = board()[target.row];
+      const addsTiles = group && [...selected].some((id) => !group.some((tile) => tile.id === id));
+      if (addsTiles && (!t.dataset.tile || !selected.has(t.dataset.tile))) {
+        playSound("select", true);
+        placeTiles([...selected], target);
+        return;
+      }
+    }
+  }
   if (t.dataset.action) {
     if (["create", "join", "start"].includes(t.dataset.action)) playSound("select", true);
     if (["play", "pass", "draw", "validate", "undo", "reset"].includes(t.dataset.action)) playSound("action", true);
@@ -1245,20 +1271,6 @@ app.addEventListener("click", (event) => {
       else if (selected.has(t.dataset.tile)) selected.delete(t.dataset.tile);
       else selected.add(t.dataset.tile);
     } else {
-      if (game === "rummikub" && selected.size === 1 && !event.shiftKey) {
-        const moving = rack().find((tile) => selected.has(tile.id));
-        const position = t.closest<HTMLElement>("[data-rm-position]")?.dataset.rmPosition;
-        if (moving && position) {
-          const [row, index] = position.split(":").map(Number);
-          const group = board()[row];
-          if (group?.some((tile) => tile.joker) &&
-            group.every((tile) => tile.joker || tile.value === moving.value) &&
-            validMeld([...group, moving]) !== null) {
-            placeTiles([moving.id], { kind: "meld", row, index: index + 1 });
-            return;
-          }
-        }
-      }
       if (selected.has(t.dataset.tile)) selected.delete(t.dataset.tile);
       else if (game === "odin" && state?.leaderRequired)
         selected = new Set([t.dataset.tile]);
