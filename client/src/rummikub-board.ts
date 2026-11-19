@@ -80,6 +80,7 @@ export function enableTileDragging(
     holdTimer?: number;
   } | null = null;
   let highlights: HTMLElement[] = [];
+  let nearbyCells: HTMLElement[] = [];
   let overlay: HTMLElement | undefined;
   let previousPreview: { element: HTMLElement; key: string } | undefined;
   let suppressClick = false;
@@ -87,6 +88,8 @@ export function enableTileDragging(
     for (const tile of highlights)
       tile.classList.remove("rm-drop-target", "rm-drop-invalid", "rm-drop-after", "rm-drop-before");
     highlights = [];
+    for (const cell of nearbyCells) cell.classList.remove("rm-drop-nearby");
+    nearbyCells = [];
     overlay?.remove();
     overlay = undefined;
     previousPreview = undefined;
@@ -110,9 +113,24 @@ export function enableTileDragging(
         `<div class="rm-ghost-slot" style="--column:${cell % GRID_COLUMNS};--row:${Math.floor(cell / GRID_COLUMNS)}">${html}</div>`).join("");
       grid.append(overlay);
       if (pending?.ghost) pending.ghost.hidden = true;
-      for (const { cell } of preview) {
+      const footprint = new Set(preview.map(({ cell }) => cell));
+      const vicinity = new Set<number>();
+      const columns = Number(grid.dataset.rmColumns);
+      for (const cell of footprint) {
+        const column = cell % GRID_COLUMNS;
+        if (column > 0) vicinity.add(cell - 1);
+        if (column < columns - 1) vicinity.add(cell + 1);
+        vicinity.add(cell - GRID_COLUMNS);
+        vicinity.add(cell + GRID_COLUMNS);
         const marker = grid.querySelector<HTMLElement>(`[data-rm-cell="${cell}"]`);
         if (marker) highlights.push(marker);
+      }
+      for (const cell of vicinity) {
+        if (footprint.has(cell)) continue;
+        const marker = grid.querySelector<HTMLElement>(`[data-rm-cell="${cell}"]`);
+        if (!marker) continue;
+        marker.classList.add("rm-drop-nearby");
+        nearbyCells.push(marker);
       }
     } else highlights = [element];
     for (const highlight of highlights) {

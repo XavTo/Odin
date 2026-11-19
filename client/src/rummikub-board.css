@@ -215,16 +215,22 @@ body.rummikub-playing #connection:not([hidden]) {
   touch-action: manipulation;
   cursor: default;
 }
-.rm-cell.rm-drop-target::after {
+.rm-cell:is(.rm-drop-target, .rm-drop-nearby)::after {
   content: "";
   position: absolute;
   inset: 50% 1px auto;
   height: var(--tile-height);
   transform: translateY(-50%);
   border-radius: 5px;
+  pointer-events: none;
+}
+.rm-cell.rm-drop-nearby::after {
+  background: #e3f8f414;
+  box-shadow: inset 0 0 0 1px #e3f8f44d;
+}
+.rm-cell.rm-drop-target::after {
   background: #076d591f;
   box-shadow: inset 0 0 0 1px #9ce5c8a6;
-  pointer-events: none;
 }
 .rm-cell.rm-drop-invalid::after {
   background: #ba4a4666;
