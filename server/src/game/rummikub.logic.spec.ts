@@ -3,6 +3,7 @@ import {
   meldValue,
   rackValue,
   validateBoard,
+  validateMeldCells,
 } from './rummikub.logic';
 import { Card, CardColor } from './game.types';
 const tile = (value: number, color: CardColor = 'red', copy = 0): Card => ({
@@ -41,6 +42,13 @@ describe('Rummikub rules', () => {
     const proposed = [[...row, black].map((t) => t.id)];
     expect(validateBoard([row], [black], proposed, true).nextHand).toEqual([]);
     expect(meldValue([...row, tile(5, 'red', 1)])).toBeNull();
+  });
+  it('rejects overlapping combinations and combinations that cross grid rows', () => {
+    const groups = [[tile(1), tile(2), tile(3)], [tile(4), tile(5), tile(6)]];
+    expect(validateMeldCells(groups, [16, 29])).toEqual([16, 29]);
+    expect(() => validateMeldCells(groups, [16, 18])).toThrow('chevauchent');
+    expect(() => validateMeldCells(groups, [16, 30])).toThrow('dépasse');
+    expect(validateMeldCells(groups, undefined)).toBeUndefined();
   });
   it('requires 30 rack points for opening and leaves inputs untouched on rejection', () => {
     const hand = [tile(8), tile(8, 'blue'), tile(8, 'black')];

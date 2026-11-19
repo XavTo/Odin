@@ -2,6 +2,7 @@ import "./style.css";
 import "./rummikub-board.css";
 import { enableTileDragging, fitRummikub, meldTarget } from "./rummikub-board";
 import type { DropTarget } from "./rummikub-board";
+import { clearGridDrop, GRID_COLUMNS, GRID_ROWS, layoutBoard } from "./rummikub-grid";
 import { playSound, prepareSound, soundEnabled, toggleSound } from "./sounds";
 import { PhotoEditor, photoFor } from "./photo-editor";
 import type { Photos } from "./photo-editor";
@@ -56,10 +57,13 @@ let code = /^\d{4}$/.test(invitedCode) ? invitedCode : "";
 let selected = new Set<string>(),
   take: string | null = null;
 let draft: Card[][] | null = null;
-let undoStack: Card[][][] = [];
+let draftCells: number[] = [];
+let undoStack: { groups: Card[][]; cells: number[] }[] = [];
 let rackOrder: string[] = [];
 let boardFit: ReturnType<typeof fitRummikub> | undefined;
 let renderedBoard: Card[][] | undefined;
+let renderedCells: number[] = [];
+let rackSort: "runs" | "sets" | undefined;
 let cancelRummikubDrag: (() => void) | undefined;
 let drawNotice = "";
 let drawNoticeTimer = 0;
@@ -262,6 +266,7 @@ socket.on("state", (next: PublicGameState) => {
   if (state?.roomId !== next.roomId) customTurnSelected = false;
   if (!sameRound) {
     rackOrder = [];
+    rackSort = undefined;
     drawNotice = "";
     window.clearTimeout(drawNoticeTimer);
   }
@@ -281,6 +286,9 @@ socket.on("state", (next: PublicGameState) => {
     clearDraft();
   }
   const revisionChanged = next.revision !== state?.revision;
+  const drawnTile = draw?.drewTile && draw.playerId === next.you?.id
+    ? next.hand.find((tile) => !state?.hand.some((previous) => previous.id === tile.id))
+    : undefined;
   state = next;
   game = next.game;
   clockOffset = next.serverNow - Date.now();
@@ -292,14 +300,15 @@ socket.on("state", (next: PublicGameState) => {
   if (take && !next.table.some((c) => c.id === take)) take = null;
   if (draw) markDraw(draw);
   render();
-  if (draw?.drewTile) animateDraw(draw.playerId);
+  if (draw?.drewTile) animateDraw(draw.playerId, drawnTile?.id);
   if (draft && revisionChanged) publishDraft();
 });
-socket.on("meldPreview", (event: { roomId: string; revision: number; playerId: string; melds: Card[][] | null }) => {
+socket.on("meldPreview", (event: { roomId: string; revision: number; playerId: string; melds: Card[][] | null; cells?: number[] }) => {
   if (!state || state.game !== "rummikub" || state.phase !== "playing" ||
     state.roomId !== event.roomId || state.revision !== event.revision ||
     state.currentPlayerId !== event.playerId || state.you?.id === event.playerId) return;
   state.preview = event.melds;
+  state.previewCells = event.cells;
   render();
 });
 async function command(
@@ -336,11 +345,14 @@ const yourTurn = () =>
 const host = () =>
   state?.players.some((p) => p.id === state?.you?.id && p.isHost) ?? false;
 const board = () => draft ?? state?.melds ?? [];
+const boardCells = () => draft ? draftCells : state?.meldCells ?? layoutBoard(board());
+const visibleCells = () => state?.preview ? state.previewCells ?? layoutBoard(state.preview) : boardCells();
+const sameCells = (a: number[], b: number[]) => a.length === b.length && a.every((cell, i) => cell === b[i]);
 const tileIds = (melds: Card[][]) => melds.map((group) => group.map((tile) => tile.id));
 const sameBoard = (a: Card[][], b: Card[][]) => JSON.stringify(tileIds(a)) === JSON.stringify(tileIds(b));
 function rackTiles(): Card[] {
   const hand = rack();
-  if (!rackOrder.length) return sorted(hand);
+  if (!rackOrder.length) return game === "rummikub" ? hand : sorted(hand);
   const byId = new Map(hand.map((tile) => [tile.id, tile]));
   const ordered: Card[] = [];
   for (const id of rackOrder) {
@@ -388,7 +400,9 @@ function arrangeRack(tiles: Card[], mode: "runs" | "sets"): string[] {
     for (const id of match) available.delete(id);
   }
 
-  return [...combinations, ...ordered.filter((tile) => available.has(tile.id)).map((tile) => tile.id)];
+  const remaining = ordered.filter((tile) => available.has(tile.id));
+  if (mode === "runs") remaining.sort((a, b) => a.color.localeCompare(b.color) || a.value - b.value);
+  return [...combinations, ...remaining.map((tile) => tile.id)];
 }
 function tileImage(url: string): string {
   if (!url.startsWith("data:")) return url;
@@ -521,6 +535,9 @@ function rummikubStage(s: PublicGameState): string {
   const current = s.players.find((player) => player.id === s.currentPlayerId);
   const opened = s.players.find((player) => player.id === s.you?.id)?.opened;
   const groups = s.preview ?? board();
+  const cells = visibleCells();
+  const usedRows = Math.max(0, ...cells.map((cell) => Math.floor(cell / GRID_COLUMNS) + 1));
+  const rows = Math.min(GRID_ROWS, Math.max(8, usedRows + 1));
   const hasInvalid = groups.some((group) => validMeld(group) === null);
   const tiles = rackTiles();
   const placed = s.hand.length - tiles.length;
@@ -537,7 +554,11 @@ function rummikubStage(s: PublicGameState): string {
   const hint = s.preview ? `${current?.name ?? "Le joueur"} prépare son coup` :
     (me && !opened ? `Première pose · ${openingPoints}/30 points` :
       me && hasInvalid ? "Complétez les groupes en orange" : "");
-  const newTarget = (index: number, last = false) => `<button type="button" class="rm-new ${last ? "rm-new-end" : ""}" data-rm-new="${index}" ${editable && selected.size ? "" : "disabled"} aria-label="Créer un groupe ici">${last ? "+ Groupe" : "+"}</button>`;
+  const deckButton = `<button type="button" class="secondary rm-deck" data-action="draw" ${editable ? "" : "disabled"} aria-label="${s.deckCount ? `Piocher et passer · ${s.deckCount} tuiles restantes` : "Passer · pioche vide"}">
+    <span class="rm-deck-icon" aria-hidden="true">${s.deckCount ? "+" : "→"}</span>
+    <span>${s.deckCount ? "Pioche" : "Passer"}</span>
+    <strong>${s.deckCount}</strong>
+  </button>`;
   return `<section class="rm-stage" aria-label="Partie de Rummikub">
     <header class="rm-hud">
       <div class="rm-turn ${me ? "my-turn" : ""}">
@@ -550,36 +571,41 @@ function rummikubStage(s: PublicGameState): string {
         <button class="secondary compact" data-action="ranking" aria-haspopup="dialog" aria-label="Classement">🏆</button>
         <button class="secondary compact" data-action="leave" ${!ready || busy ? "disabled" : ""}>Quitter</button>
       </div>
-      <div class="rm-players"><button class="secondary compact rm-invite" data-action="invite" aria-label="Copier le lien de la salle ${s.roomId}">${s.roomId}</button>${s.players.map((player) => `<div class="rm-player ${player.isCurrent ? "active" : ""} ${!player.connected ? "offline" : ""}" data-rm-player="${esc(player.id)}" title="${esc(player.name)} · ${player.handCount} tuiles${!player.connected ? " · Déconnecté" : ""}"><strong>${player.id === s.you?.id ? "Vous" : esc(player.name)}</strong><span>${player.handCount} ▥</span>${host() && !player.connected && !player.forfeited ? `<button class="secondary compact" data-remove="${esc(player.id)}" aria-label="Retirer ${esc(player.name)}">×</button>` : ""}</div>`).join("")}${!host() && s.players.some((p) => p.isHost && !p.connected) ? '<button class="secondary compact" data-action="claim-host">Devenir hôte</button>' : ""}</div>
+      <div class="rm-players"><button class="secondary compact rm-invite" data-action="invite" aria-label="Copier le lien de la salle ${s.roomId}">${s.roomId}</button>${s.players.map((player) => `<div class="rm-player ${player.isCurrent ? "active" : ""} ${!player.connected ? "offline" : ""}" data-rm-player="${esc(player.id)}" title="${esc(player.name)} · ${player.handCount} tuiles${!player.connected ? " · Déconnecté" : ""}"><strong>${player.id === s.you?.id ? "Vous" : esc(player.name)}</strong><span>${player.handCount} ▥</span>${player.isCurrent ? '<span class="rm-turn-ring" aria-hidden="true"></span>' : ""}${host() && !player.connected && !player.forfeited ? `<button class="secondary compact" data-remove="${esc(player.id)}" aria-label="Retirer ${esc(player.name)}">×</button>` : ""}</div>`).join("")}${!host() && s.players.some((p) => p.isHost && !p.connected) ? '<button class="secondary compact" data-action="claim-host">Devenir hôte</button>' : ""}</div>
     </header>
     <div class="rm-table" data-rm-count="${groups.length}" aria-label="Table de jeu">
       <div class="rm-table-status">
         ${drawNotice ? `<p class="rm-message rm-draw-notice" role="status">${esc(drawNotice)}</p>` : ""}
         ${hint ? `<p class="rm-message ${s.preview ? "rm-preview" : ""}" role="status">${esc(hint)}</p>` : ""}
       </div>
-      ${editable && groups.length === 0 ? '<p class="rm-empty">Glissez vos tuiles ici</p>' : ""}
-      <div class="rm-groups">
-      ${groups.map((group, row) => {
-        const unlocked = editable && group.every(canTouch);
-        const gap = (index: number) => `<button type="button" class="rm-gap" data-rm-gap="${row}:${index}" aria-label="${selected.size ? "Insérer" : "Scinder"} au rang ${index + 1} du groupe ${row + 1}" ${unlocked && (selected.size || (index > 0 && index < group.length)) ? "" : "disabled"}>${selected.size ? "+" : "·"}</button>`;
-        return `<div class="rm-group-slot">${newTarget(row)}<div data-rm-end="${row}:${group.length}" class="rm-meld ${unlocked && selected.size ? "can-insert" : ""} ${validMeld(group) === null ? "invalid" : ""} ${s.preview ? "is-preview" : ""}">
-          <button type="button" class="rm-group" data-rm-group="${row}" aria-label="Déplacer le groupe ${row + 1}" ${unlocked ? "" : "disabled"}>⠿</button>
-          ${group.map((tile, index) => `<span class="rm-position" data-rm-position="${row}:${index}">${gap(index)}${card(tile, "board", !unlocked)}</span>`).join("")}${gap(group.length)}
-        </div></div>`;
-      }).join("")}
-      ${newTarget(groups.length, true)}
+      <div class="rm-playfield">
+      <div class="rm-grid-area">
+        <div class="rm-grid" style="--columns:${GRID_COLUMNS};--rows:${rows}">
+          <div class="rm-grid-cells" aria-hidden="true">${Array.from({ length: rows * GRID_COLUMNS }, (_, cell) =>
+            `<span class="rm-cell" data-rm-cell="${cell}"></span>`).join("")}</div>
+          ${groups.map((group, row) => {
+            const unlocked = editable && group.every(canTouch);
+            const gap = (index: number) => `<button type="button" class="rm-gap" data-rm-gap="${row}:${index}" aria-label="${selected.size ? "Insérer" : "Scinder"} au rang ${index + 1} du groupe ${row + 1}" ${unlocked && (selected.size || (index > 0 && index < group.length)) ? "" : "disabled"}>${selected.size ? "+" : "·"}</button>`;
+            const cell = cells[row];
+            return `<div data-rm-end="${row}:${group.length}" class="rm-meld ${unlocked && selected.size ? "can-insert" : ""} ${validMeld(group) === null ? "invalid" : ""} ${s.preview ? "is-preview" : ""}" style="--column:${cell % GRID_COLUMNS};--row:${Math.floor(cell / GRID_COLUMNS)};--length:${group.length}">
+              <button type="button" class="rm-group" data-rm-group="${row}" aria-label="Déplacer le groupe ${row + 1}" ${unlocked ? "" : "disabled"}>⠿</button>
+              ${group.map((tile, index) => `<span class="rm-position" data-rm-position="${row}:${index}">${gap(index)}${card(tile, "board", !unlocked)}</span>`).join("")}
+            </div>`;
+          }).join("")}
+          ${editable && groups.length === 0 ? '<p class="rm-empty">Glissez vos tuiles ici</p>' : ""}
+        </div>
+      </div>
+      ${deckButton}
       </div>
     </div>
     <div class="rm-dock">
       <div class="rm-toolbar">
-        <button class="secondary compact rm-deck" data-action="draw" ${editable ? "" : "disabled"} aria-label="${s.deckCount ? `Piocher et passer · ${s.deckCount} tuiles restantes` : "Passer · pioche vide"}">
-          <span aria-hidden="true">▥</span><strong>${s.deckCount}</strong> ${editable ? s.deckCount ? "Piocher" : "Passer" : "Pioche"}
-        </button>
+        <button type="button" class="secondary compact" data-rm-new="${groups.length}" ${editable && selected.size ? "" : "disabled"}>Poser</button>
         <button class="secondary compact" data-action="undo" ${editable && undoStack.length ? "" : "disabled"}>Annuler</button>
         <button class="secondary compact" data-action="reset" ${editable && draft ? "" : "disabled"}>Rétablir</button>
         <div class="rm-sort" role="group" aria-label="Trier le chevalet">
-          <button type="button" class="secondary compact" data-rm-sort="runs">Suites</button>
-          <button type="button" class="secondary compact" data-rm-sort="sets">Valeurs</button>
+          <button type="button" class="secondary compact" data-rm-sort="runs" aria-pressed="${rackSort === "runs"}">Suites</button>
+          <button type="button" class="secondary compact" data-rm-sort="sets" aria-pressed="${rackSort === "sets"}">Valeurs</button>
         </div>
         ${runHead ? `<button type="button" class="secondary compact rm-single-tile" data-rm-single="${esc(runHead.id)}" aria-label="Sélectionner uniquement le ${runHead.value} ${colors[runHead.color].toLowerCase()}">${runHead.value} seul</button>` : ""}
         <button class="compact" data-action="validate" ${canValidate ? "" : "disabled"}>Valider</button>
@@ -600,11 +626,12 @@ function markDraw(draw: RummikubDraw) {
     document.querySelector(".rm-draw-notice")?.remove();
   }, 3600);
 }
-function animateDraw(playerId: string) {
+function animateDraw(playerId: string, tileId?: string) {
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const deck = document.querySelector(".rm-deck");
-  const recipient = playerId === state?.you?.id ? document.querySelector(".rm-rack")
-    : document.querySelector(`[data-rm-player="${CSS.escape(playerId)}"]`);
+  const drawn = tileId ? document.querySelector<HTMLElement>(`.rm-rack [data-tile="${CSS.escape(tileId)}"]`) : null;
+  const recipient = drawn ?? (playerId === state?.you?.id ? document.querySelector(".rm-rack")
+    : document.querySelector(`[data-rm-player="${CSS.escape(playerId)}"]`));
   if (!deck || !recipient) return;
   const from = deck.getBoundingClientRect();
   const to = recipient.getBoundingClientRect();
@@ -615,10 +642,13 @@ function animateDraw(playerId: string) {
   tile.textContent = "▥";
   tile.setAttribute("aria-hidden", "true");
   document.body.append(tile);
+  const start = `translate(${from.x + (from.width - 32) / 2}px, ${from.y + (from.height - 40) / 2}px)`;
+  const end = `translate(${to.x + (to.width - 32) / 2}px, ${to.y + (to.height - 40) / 2}px)`;
+  drawn?.animate([{ opacity: 0 }, { opacity: 0, offset: .8 }, { opacity: 1 }], { duration: 550 });
   const animation = tile.animate([
-    { transform: `translate(${from.x + from.width / 2}px, ${from.y}px) scale(.7)` },
-    { transform: `translate(${to.x + to.width / 2}px, ${to.y}px) scale(1.05)`, offset: .8 },
-    { transform: `translate(${to.x + to.width / 2}px, ${to.y}px) scale(.8)`, opacity: 0 },
+    { transform: `${start} scale(.7)` },
+    { transform: `${end} scale(1.05)`, offset: .8 },
+    { transform: `${end} scale(.8)`, opacity: 0 },
   ], { duration: 550, easing: "ease-in-out" });
   animation.onfinish = () => { tile.remove(); if (flyingTile === tile) flyingTile = null; };
 }
@@ -657,7 +687,7 @@ function canPlaceGroup(tiles: Card[]): boolean {
   return first.color === second.color && second.value - first.value >= 1 && second.value - first.value <= 2;
 }
 function rules(): string {
-  return `<section class="rules">${game === "odin" ? "<p>9 cartes par joueur. Ouvrez avec une carte, puis posez une combinaison de même couleur ou même valeur, de valeur supérieure : même nombre de cartes ou une de plus. Les chiffres forment le plus grand nombre possible (8 et 2 = 82).</p><p>Après une pose, récupérez une carte de la table précédente, sauf si vous videz votre main. Passer n’empêche pas de rejouer plus tard. Quand tous les autres passent, le dernier à jouer ouvre le pli suivant.</p><p>Une main vidée ou entièrement de même couleur/valeur à l’ouverture d’un pli termine la manche. Les autres marquent un point par carte. À la limite de score, le plus petit total gagne.</p>" : '<p>106 tuiles, dont 2 jokers. Chacun reçoit 14 tuiles. Posez des groupes de 3 ou 4 valeurs identiques de couleurs différentes, ou des suites d’au moins 3 valeurs consécutives de même couleur. Le 1 ne suit jamais le 13.</p><p>Votre première pose doit valoir au moins 30 points, uniquement avec votre chevalet. Vous pourrez réorganiser la table aux tours suivants. Un joker représente la tuile qu’il remplace ; il reste sur la table et peut être réutilisé dans une combinaison valide.</p><p>Chaque tour : posez au moins une tuile, ou piochez et passez. Toutes les combinaisons doivent être valides en fin de tour. Videz votre chevalet pour gagner. Un joker restant coûte 30 points. Si la pioche est vide et tout le monde passe, le plus petit chevalet gagne.</p><p>Glissez une tuile sur un groupe pour l’ajouter ou sur la table pour créer un groupe. Vous pouvez aussi sélectionner des tuiles puis cliquer sur le groupe. Cliquez sur la première tuile d’une suite de même couleur pour sélectionner la suite entière. Pour réunir des tuiles de même valeur, sélectionnez-les une à une. Le bouton « 5 seul », par exemple, garde uniquement le 5 sélectionné. Maj + clic sélectionne les tuiles une à une. Maintiens une tuile avant de la glisser pour déplacer sa suite ou sa combinaison sur la table. Un clic dans un espace vide crée un groupe avec la sélection. Si tu remplaces un joker dans une suite, réutilise-le avant de valider. La poignée déplace un groupe entier et le point entre deux tuiles le scinde. Les autres joueurs voient vos poses provisoires. « Annuler » revient d’un geste en arrière et « Valider » termine le tour.</p><a href="https://rummikub.com/rules/" target="_blank" rel="noopener">Consulter les règles classiques officielles ↗</a>'}</section>`;
+  return `<section class="rules">${game === "odin" ? "<p>9 cartes par joueur. Ouvrez avec une carte, puis posez une combinaison de même couleur ou même valeur, de valeur supérieure : même nombre de cartes ou une de plus. Les chiffres forment le plus grand nombre possible (8 et 2 = 82).</p><p>Après une pose, récupérez une carte de la table précédente, sauf si vous videz votre main. Passer n’empêche pas de rejouer plus tard. Quand tous les autres passent, le dernier à jouer ouvre le pli suivant.</p><p>Une main vidée ou entièrement de même couleur/valeur à l’ouverture d’un pli termine la manche. Les autres marquent un point par carte. À la limite de score, le plus petit total gagne.</p>" : '<p>106 tuiles, dont 2 jokers. Chacun reçoit 14 tuiles. Posez des groupes de 3 ou 4 valeurs identiques de couleurs différentes, ou des suites d’au moins 3 valeurs consécutives de même couleur. Le 1 ne suit jamais le 13.</p><p>Votre première pose doit valoir au moins 30 points, uniquement avec votre chevalet. Vous pourrez réorganiser la table aux tours suivants. Un joker représente la tuile qu’il remplace ; il reste sur la table et peut être réutilisé dans une combinaison valide.</p><p>Chaque tour : posez au moins une tuile, ou piochez et passez. Toutes les combinaisons doivent être valides en fin de tour. Videz votre chevalet pour gagner. Un joker restant coûte 30 points. Si la pioche est vide et tout le monde passe, le plus petit chevalet gagne.</p><p>Glissez une tuile sur un groupe pour l’ajouter ou sur la table pour créer un groupe. Vous pouvez aussi sélectionner des tuiles puis cliquer sur le groupe. Cliquez sur la première tuile d’une suite de même couleur pour sélectionner la suite entière. Pour réunir des tuiles de même valeur, sélectionnez-les une à une. Le bouton « 5 seul », par exemple, garde uniquement le 5 sélectionné. Maj + clic sélectionne les tuiles une à une. Maintiens une tuile avant de la glisser pour déplacer sa suite ou sa combinaison sur la table. Choisis une case vide pour positionner le groupe. Une tuile compatible peut aussi rejoindre une combinaison en se posant juste à côté. Si tu remplaces un joker dans une suite, réutilise-le avant de valider. La poignée déplace un groupe entier et le point entre deux tuiles le scinde. Les autres joueurs voient vos poses provisoires. « Annuler » revient d’un geste en arrière et « Valider » termine le tour.</p><a href="https://rummikub.com/rules/" target="_blank" rel="noopener">Consulter les règles classiques officielles ↗</a>'}</section>`;
 }
 function ranking(): string {
   return `<section class="ranking"><div class="section-heading"><span></span><button class="text" data-action="refresh-ranking">Actualiser ↻</button></div><p class="muted">Profil enregistré dans ce navigateur.</p>${rankingLoading ? '<p role="status">Chargement…</p>' : rankingError ? `<p role="alert">${esc(rankingError)}</p>` : rankings.length ? `<div class="ranking-scroll"><table><thead><tr><th>Place</th><th>Joueur</th><th>Elo</th><th>Victoires</th><th>Parties</th></tr></thead><tbody>${rankings.map((r, i) => `<tr><td>${i + 1}</td><td>${esc(r.name)}</td><td><strong>${r.rating}</strong></td><td>${r.wins}${r.draws ? ` (+${r.draws} ex æquo)` : ""}</td><td>${r.played}</td></tr>`).join("")}</tbody></table></div>` : '<div class="empty-ranking">Aucune partie terminée.</div>'}</section>`;
@@ -665,10 +695,11 @@ function ranking(): string {
 function render() {
   const rummikubPlaying = siteUnlocked && state?.game === "rummikub" && state.phase === "playing";
   const currentBoard = rummikubPlaying ? state!.preview ?? board() : undefined;
-  const boardUnchanged = !!currentBoard && !!renderedBoard && sameBoard(currentBoard, renderedBoard);
-  const previousLayout = boardUnchanged ? boardFit?.layout() : undefined;
+  const currentCells = rummikubPlaying ? visibleCells() : [];
+  const boardUnchanged = !!currentBoard && !!renderedBoard && sameBoard(currentBoard, renderedBoard) && sameCells(currentCells, renderedCells);
   renderedBoard = currentBoard;
-  boardFit?.disconnect();
+  renderedCells = currentCells;
+  boardFit?.();
   boardFit = undefined;
   const oldStage = content.querySelector(".rm-stage");
   const previousTiles = new Map<string, DOMRect>();
@@ -721,7 +752,7 @@ function render() {
   updateClock();
   const stage = content.querySelector<HTMLElement>(".rm-stage");
   if (stage) {
-    boardFit = fitRummikub(stage, previousLayout);
+    boardFit = fitRummikub(stage);
     for (const tile of stage.querySelectorAll<HTMLElement>("[data-tile]")) {
       const from = previousTiles.get(tile.dataset.tile!);
       if (!from) continue;
@@ -733,7 +764,7 @@ function render() {
   }
 }
 function pushUndo() {
-  undoStack.push(board().map((m) => [...m]));
+  undoStack.push({ groups: board(), cells: boardCells() });
   if (undoStack.length > 50) undoStack.shift();
 }
 function publishDraft() {
@@ -742,12 +773,16 @@ function publishDraft() {
     roomId: state.roomId,
     revision: state.revision,
     melds: draft ? tileIds(draft) : null,
+    cells: draft ? draftCells : undefined,
   });
 }
-function applyDraft(next: Card[][]) {
-  if (!state || sameBoard(next, board())) return;
+function applyDraft(next: Card[][], drop?: { group: Card[]; cell: number }) {
+  if (!state) return;
+  const cells = layoutBoard(next, board(), boardCells(), drop);
+  if (sameBoard(next, board()) && sameCells(cells, boardCells())) return;
   pushUndo();
-  draft = sameBoard(next, state.melds) ? null : next;
+  draft = sameBoard(next, state.melds) && sameCells(cells, state.meldCells ?? layoutBoard(state.melds)) ? null : next;
+  draftCells = cells;
   selected.clear();
   if (draft) persistDraft(); else clearDraft();
   publishDraft();
@@ -814,6 +849,24 @@ function movableTiles(ids: string[]): Card[] {
   return ids.map((id) => lookup.get(id)).filter((tile): tile is Card => !!tile);
 }
 
+function adjacentMeld(groups: Card[][], cells: number[], moving: Card[], cell: number) {
+  if (moving.length >= 3) return;
+  const row = Math.floor(cell / GRID_COLUMNS);
+  for (const [index, group] of groups.entries()) {
+    const start = cells[index];
+    if (Math.floor(start / GRID_COLUMNS) !== row || !group.every(canTouch) ||
+        group.some((tile) => moving.some((item) => item.id === tile.id))) continue;
+    if (start + group.length === cell) {
+      const joined = [...group, ...moving];
+      if (canPlaceGroup(joined)) return { index, group: joined, cell: start };
+    }
+    if (cell + moving.length === start) {
+      const joined = [...moving, ...group];
+      if (canPlaceGroup(joined)) return { index, group: joined, cell };
+    }
+  }
+}
+
 function placeTiles(ids: string[], target: DropTarget) {
   if (!ready || busy || !state || state.phase !== "playing" || !ids.length) return;
   if (target.kind !== "rack" && !yourTurn()) return;
@@ -844,7 +897,19 @@ function placeTiles(ids: string[], target: DropTarget) {
       notify("Cette pose ne forme pas une combinaison valide.");
       return;
     }
+    if (target.cell !== undefined && !clearGridDrop(before, boardCells(), ordered, target.cell)) {
+      notify("Il n’y a pas assez de cases libres sur cette rangée.");
+      return;
+    }
+    const adjacent = target.cell === undefined ? undefined : adjacentMeld(before, boardCells(), ordered, target.cell);
+    if (adjacent) {
+      next[adjacent.index] = adjacent.group;
+      applyDraft(next.filter((group) => group.length), adjacent);
+      return;
+    }
     next.splice(target.index, 0, ordered);
+    applyDraft(next.filter((group) => group.length), target.cell === undefined ? undefined : { group: ordered, cell: target.cell });
+    return;
   } else {
     const currentRack = rackTiles();
     const index = target.before ? currentRack.findIndex((tile) => tile.id === target.before) : currentRack.length;
@@ -852,6 +917,7 @@ function placeTiles(ids: string[], target: DropTarget) {
     const remaining = currentRack.filter((tile) => !movingIds.has(tile.id));
     remaining.splice(insertion, 0, ...moving);
     rackOrder = remaining.map((tile) => tile.id);
+    rackSort = undefined;
     selected.clear();
     if (sameBoard(next.filter((group) => group.length), before)) { render(); return; }
   }
@@ -892,6 +958,7 @@ function persistDraft() {
           table: state.melds.map((m) => m.map((t) => t.id)),
           hand: state.hand.map((t) => t.id),
           draft: draft.map((m) => m.map((t) => t.id)),
+          cells: draftCells,
         }),
       );
     } catch {
@@ -918,8 +985,14 @@ function restoreDraft() {
       Array.isArray(data.draft) &&
       data.draft.flat().every((id: string) => all.has(id))
     ) {
-      if (JSON.stringify(data.draft) === JSON.stringify(data.table)) clearDraft();
-      else draft = data.draft.map((m: string[]) => m.map((id) => all.get(id)!));
+      const restored = data.draft.map((m: string[]) => m.map((id) => all.get(id)!));
+      const positions: number[] = Array.isArray(data.cells) ? data.cells : [];
+      const cells = layoutBoard(restored, restored, positions);
+      if (sameBoard(restored, state.melds) && sameCells(cells, boardCells())) clearDraft();
+      else {
+        draft = restored;
+        draftCells = cells;
+      }
     }
   } catch {
     /* ignore a stale draft */
@@ -1158,7 +1231,8 @@ async function action(name: string) {
     case "validate":
       if (
         await command("submitMelds", {
-          melds: board().map((m) => m.map((t) => t.id)),
+          melds: tileIds(board()),
+          cells: boardCells(),
         })
       ) {
         draft = null;
@@ -1168,7 +1242,10 @@ async function action(name: string) {
       return;
     case "undo": {
       const previous = undoStack.pop() ?? null;
-      draft = previous && state && sameBoard(previous, state.melds) ? null : previous;
+      if (!previous || !state) return;
+      const committed = state.meldCells ?? layoutBoard(state.melds);
+      draft = sameBoard(previous.groups, state.melds) && sameCells(previous.cells, committed) ? null : previous.groups;
+      draftCells = previous.cells;
       selected.clear();
       if (draft) persistDraft(); else clearDraft();
       publishDraft();
@@ -1307,12 +1384,12 @@ app.addEventListener("keydown", (event) => {
 app.addEventListener("click", prepareSound, { once: true });
 app.addEventListener("click", (event) => {
   const clicked = event.target as HTMLElement;
-  const t = clicked.closest<HTMLElement>("button, .rm-rack, .rm-meld, .rm-table");
+  const t = clicked.closest<HTMLElement>("button, [data-rm-cell], .rm-rack, .rm-meld, .rm-table");
   if (!t || (t as HTMLButtonElement).disabled) return;
   if (game === "rummikub" && yourTurn() && !busy && selected.size && !event.shiftKey) {
-    if (t.classList.contains("rm-table")) {
+    if (t.dataset.rmCell !== undefined) {
       playSound("select", true);
-      placeTiles([...selected], { kind: "new", index: board().length });
+      placeTiles([...selected], { kind: "new", index: board().length, cell: Number(t.dataset.rmCell) });
       return;
     }
     const target = meldTarget(clicked, event.detail ? event.clientX : undefined);
@@ -1340,7 +1417,8 @@ app.addEventListener("click", (event) => {
     return;
   }
   if (t.dataset.rmSort === "runs" || t.dataset.rmSort === "sets") {
-    rackOrder = arrangeRack(rackTiles(), t.dataset.rmSort);
+    rackSort = t.dataset.rmSort;
+    rackOrder = arrangeRack(rackTiles(), rackSort);
     render();
     content.querySelector<HTMLButtonElement>(`[data-rm-sort="${t.dataset.rmSort}"]`)?.focus({ preventScroll: true });
     return;
@@ -1428,7 +1506,10 @@ cancelRummikubDrag = enableTileDragging(app, (element) => {
   if (!yourTurn() || busy) return false;
   const moving = movableTiles(ids);
   if (!moving.length || moving.some((tile) => !canTouch(tile))) return false;
-  if (target.kind === "new") return canPlaceGroup(orderNewGroup(moving));
+  if (target.kind === "new") {
+    const ordered = orderNewGroup(moving);
+    return canPlaceGroup(ordered) && (target.cell === undefined || clearGridDrop(board(), boardCells(), ordered, target.cell));
+  }
   const group = board()[target.row];
   return !!group?.every(canTouch) && !!planMeldPlacement(group, moving, target);
 }, (element) => {
@@ -1454,11 +1535,16 @@ function updateClock() {
   const remainingMs = state.deadline === null ? null : Math.max(0, state.deadline - (Date.now() + clockOffset));
   const remaining = remainingMs === null ? null : Math.ceil(remainingMs / 1000);
   const turn = el.closest<HTMLElement>(".rm-turn")!;
+  const ring = document.querySelector<HTMLElement>(".rm-turn-ring");
   const urgent = remaining !== null && remaining > 0 && remaining <= 10 && !state.paused;
   const text = state.paused ? "Pause" : remaining === null ? "Sans limite" : `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, "0")}`;
   if (el.textContent !== text) el.textContent = text;
   turn.classList.toggle("urgent", urgent);
-  turn.style.setProperty("--remaining", String(remainingMs !== null && duration > 0 ? Math.min(1, remainingMs / (duration * 1000)) : 1));
+  const progress = remainingMs !== null && duration > 0 ? Math.min(1, remainingMs / (duration * 1000)) : 1;
+  turn.style.setProperty("--remaining", String(progress));
+  ring?.style.setProperty("--remaining", String(progress));
+  ring?.classList.toggle("urgent", urgent);
+  if (ring) ring.hidden = remaining === null || state.paused;
   if (!urgent || !yourTurn() || document.hidden) return;
   const turnKey = `${state.roomId}:${state.round}:${state.currentPlayerId}:${state.deadline}`;
   if (warnedTurn !== turnKey) {

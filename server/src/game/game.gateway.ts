@@ -21,6 +21,7 @@ interface Payload {
   takeCardId?: unknown;
   revision?: unknown;
   melds?: unknown;
+  cells?: unknown;
   playerId?: unknown;
   settings?: Partial<GameSettings>;
   photos?: unknown;
@@ -122,12 +123,13 @@ export class GameGateway
   preview(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
     try {
       this.limit(c);
-      const { room, melds } = this.gameService.previewMelds(p?.roomId, c.id, p?.melds, p?.revision);
+      const { room, melds, cells } = this.gameService.previewMelds(p?.roomId, c.id, p?.melds, p?.revision, p?.cells);
       c.to(room.id).emit('meldPreview', {
         roomId: room.id,
         revision: room.revision,
         playerId: room.state.currentPlayerId,
         melds,
+        cells,
       });
       return { ok: true };
     } catch (e) {
@@ -137,7 +139,7 @@ export class GameGateway
   @SubscribeMessage('submitMelds')
   melds(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
     return this.run(c, () =>
-      this.gameService.submitMelds(p?.roomId, c.id, p?.melds, p?.revision),
+      this.gameService.submitMelds(p?.roomId, c.id, p?.melds, p?.revision, p?.cells),
     );
   }
   @SubscribeMessage('drawTile')

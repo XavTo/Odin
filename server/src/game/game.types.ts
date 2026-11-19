@@ -53,6 +53,7 @@ export interface GameState {
   discard: Card[];
   table: Card[];
   melds: Card[][];
+  meldCells?: number[];
   lastPlay: Play | null;
   currentPlayerId: string | null;
   passed: Set<string>;
@@ -114,6 +115,7 @@ export interface PublicGameState {
   hand: Card[];
   table: Card[];
   melds: Card[][];
+  meldCells?: number[];
   lastPlay: Play | null;
   currentPlayerId: string | null;
   leaderRequired: boolean;
@@ -129,5 +131,6 @@ export interface PublicGameState {
   deadline: number | null;
   paused: boolean;
   preview?: Card[][] | null;
+  previewCells?: number[];
   lastDraw?: RummikubDraw;
 }

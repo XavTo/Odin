@@ -18,12 +18,12 @@ import {
   hasMonoColorOrValue,
   hasUniqueCardIds,
 } from './game.logic';
-import { createTiles, rackValue, validateBoard } from './rummikub.logic';
+import { createTiles, rackValue, validateBoard, validateMeldCells } from './rummikub.logic';
 import { GameStore } from './game.store';
 
 @Injectable()
 export class GameService implements OnModuleDestroy {
-  private previews = new WeakMap<GameRoom, { revision: number; melds: Card[][] }>();
+  private previews = new WeakMap<GameRoom, { revision: number; melds: Card[][]; cells?: number[] }>();
   private rooms = new Map<string, GameRoom>();
   private profiles = new Map<string, Profile>();
   private photos: Record<string, string> = {};
@@ -460,7 +460,8 @@ export class GameService implements OnModuleDestroy {
     socketId: string,
     proposed: unknown,
     revision: unknown,
-  ): { room: GameRoom; melds: Card[][] | null } {
+    positions?: unknown,
+  ): { room: GameRoom; melds: Card[][] | null; cells?: number[] } {
     const room = this.getRoom(roomId);
     const player = this.requireTurn(room, socketId, 'rummikub', revision);
     if (proposed === null) {
@@ -487,8 +488,9 @@ export class GameService implements OnModuleDestroy {
     if (!player.opened && room.state.melds.some((old) =>
       !melds.some((group) => group.length === old.length && group.every((tile, i) => tile.id === old[i].id)),
     )) throw new Error('La première pose doit venir du chevalet.');
-    this.previews.set(room, { revision: room.revision, melds });
-    return { room, melds };
+    const cells = validateMeldCells(melds, positions);
+    this.previews.set(room, { revision: room.revision, melds, cells });
+    return { room, melds, cells };
   }
 
   submitMelds(
@@ -496,6 +498,7 @@ export class GameService implements OnModuleDestroy {
     socketId: string,
     melds: unknown,
     revision?: unknown,
+    positions?: unknown,
   ): GameRoom {
     const room = this.getRoom(roomId);
     const player = this.requireTurn(room, socketId, 'rummikub', revision);
@@ -505,7 +508,9 @@ export class GameService implements OnModuleDestroy {
       melds,
       player.opened,
     );
+    const cells = validateMeldCells(valid.melds, positions);
     room.state.melds = valid.melds;
+    room.state.meldCells = cells;
     player.hand = valid.nextHand;
     player.opened = true;
     room.moves++;
@@ -614,6 +619,7 @@ export class GameService implements OnModuleDestroy {
       hand: player?.hand ?? [],
       table: room.state.table,
       melds: room.state.melds,
+      meldCells: room.state.meldCells,
       lastPlay: room.state.lastPlay,
       currentPlayerId: room.state.currentPlayerId,
       leaderRequired: room.state.leaderRequired,
@@ -636,6 +642,8 @@ export class GameService implements OnModuleDestroy {
       paused: Boolean(room.pausedAt),
       preview: preview && preview.revision === room.revision && playerId !== room.state.currentPlayerId
         ? preview.melds : null,
+      previewCells: preview && preview.revision === room.revision && playerId !== room.state.currentPlayerId
+        ? preview.cells : undefined,
       lastDraw: room.state.lastDraw,
     };
   }
@@ -669,6 +677,7 @@ export class GameService implements OnModuleDestroy {
       discard: [],
       table: [],
       melds: [],
+      meldCells: undefined,
       lastPlay: null,
       lastDraw: undefined,
       currentPlayerId: room.roundStarterId,

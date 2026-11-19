@@ -36,6 +36,26 @@ export function meldValue(tiles: Card[]): number | null {
   if (!tiles.every((t, i) => t.joker || t.value === start + i)) return null;
   return tiles.reduce((sum, _, i) => sum + start + i, 0);
 }
+export function validateMeldCells(groups: Card[][], cells: unknown): number[] | undefined {
+  if (cells === undefined) return;
+  const columns = 16;
+  const rows = 12;
+  const occupied = new Set<number>();
+  if (!Array.isArray(cells) || cells.length !== groups.length)
+    throw new Error('Positions du plateau invalides.');
+  return cells.map((cell: unknown, index: number) => {
+    const length = groups[index].length;
+    if (typeof cell !== 'number' || !Number.isInteger(cell) ||
+        cell < 0 || cell >= columns * rows || cell % columns + length > columns)
+      throw new Error('Une combinaison dépasse du plateau.');
+    for (let offset = 0; offset < length; offset++) {
+      const position = cell + offset;
+      if (occupied.has(position)) throw new Error('Deux combinaisons se chevauchent.');
+      occupied.add(position);
+    }
+    return cell;
+  });
+}
 export function rackValue(hand: Card[]): number {
   return hand.reduce((sum, tile) => sum + (tile.joker ? 30 : tile.value), 0);
 }
