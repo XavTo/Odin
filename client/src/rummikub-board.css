@@ -267,14 +267,27 @@ body.rummikub-playing #connection:not([hidden]) {
   padding: 3px 7px;
 }
 .rm-drop-target {
-  outline: 2px solid #ffd484 !important;
+  outline: 2px solid #9ce5c8 !important;
   outline-offset: 1px;
 }
 .rm-meld.can-insert:hover {
   border-color: #ffd484;
 }
 .rm-meld.rm-drop-target {
-  background: #825d33;
+  background: #164f4b;
+}
+.rm-drop-invalid {
+  outline: 2px solid #ffac9d !important;
+}
+.rm-meld.rm-drop-invalid {
+  background: #63343d;
+}
+.rm-drag-source {
+  opacity: .38;
+}
+.tile.rm-hold-ready {
+  outline: 3px solid #9ce5c8;
+  outline-offset: 2px;
 }
 .rm-dock {
   display: grid;
@@ -290,6 +303,10 @@ body.rummikub-playing #connection:not([hidden]) {
   justify-content: space-between;
   gap: 4px;
   flex-wrap: wrap;
+}
+.rm-sort {
+  display: flex;
+  gap: 4px;
 }
 .rm-toolbar button {
   min-height: 32px;

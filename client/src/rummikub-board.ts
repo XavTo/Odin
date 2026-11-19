@@ -1,5 +1,5 @@
 export type DropTarget =
-  | { kind: "meld"; row: number; index: number }
+  | { kind: "meld"; row: number; index: number; tileId?: string }
   | { kind: "new"; index: number }
   | { kind: "rack"; before?: string };
 
@@ -7,12 +7,13 @@ export function meldTarget(element: HTMLElement, x?: number): Extract<DropTarget
   const hit = element.closest<HTMLElement>("[data-rm-gap], [data-rm-position], [data-rm-end]");
   const position = hit?.dataset.rmGap ?? hit?.dataset.rmPosition ?? hit?.dataset.rmEnd;
   if (!hit || !position) return null;
+  const tileId = hit.dataset.rmPosition ? hit.querySelector<HTMLElement>("[data-tile]")?.dataset.tile : undefined;
   const [row, index] = position.split(":").map(Number);
   if (hit.dataset.rmPosition && x !== undefined) {
     const { left, width } = hit.getBoundingClientRect();
-    return { kind: "meld", row, index: index + Number(x >= left + width / 2) };
+    return { kind: "meld", row, index: index + Number(x >= left + width / 2), tileId };
   }
-  return { kind: "meld", row, index };
+  return { kind: "meld", row, index, tileId };
 }
 
 export function targetAt(
@@ -56,6 +57,8 @@ export function enableTileDragging(
   root: HTMLElement,
   pick: (element: HTMLElement) => string[],
   drop: (ids: string[], target: DropTarget) => void,
+  canDrop: (ids: string[], target: DropTarget) => boolean,
+  pickOnHold: (element: HTMLElement) => string[],
 ) {
   let pending: {
     id: number;
@@ -64,18 +67,24 @@ export function enableTileDragging(
     element: HTMLElement;
     tiles: string[];
     ghost?: HTMLElement;
+    holdTimer?: number;
   } | null = null;
   let highlight: HTMLElement | null = null;
   let suppressClick = false;
   function clear() {
     highlight?.classList.remove(
       "rm-drop-target",
+      "rm-drop-invalid",
       "rm-drop-after",
       "rm-drop-before",
     );
     highlight = null;
     root.classList.remove("rm-dragging");
     pending?.ghost?.remove();
+    if (pending) {
+      window.clearTimeout(pending.holdTimer);
+      pending.element.classList.remove("rm-drag-source", "rm-hold-ready");
+    }
     if (pending && root.hasPointerCapture(pending.id))
       root.releasePointerCapture(pending.id);
     pending = null;
@@ -87,14 +96,21 @@ export function enableTileDragging(
     );
     if (!element) return;
     const tiles = pick(element);
-    if (tiles.length)
-      pending = {
-        id: event.pointerId,
-        x: event.clientX,
-        y: event.clientY,
-        element,
-        tiles,
-      };
+    if (!tiles.length) return;
+    const gesture = { id: event.pointerId, x: event.clientX, y: event.clientY, element, tiles };
+    pending = gesture;
+    const group = tiles.length === 1 && !event.shiftKey ? pickOnHold(element) : [];
+    if (group.length > 1) {
+      pending.holdTimer = window.setTimeout(() => {
+        if (pending !== gesture || !element.isConnected) return;
+        pending.tiles = group;
+        element.classList.add("rm-hold-ready");
+      }, 360);
+    }
+  });
+  root.addEventListener("contextmenu", (event) => {
+    if ((event.target as HTMLElement).closest(".rm-stage [data-tile]"))
+      event.preventDefault();
   });
   window.addEventListener(
     "pointermove",
@@ -106,6 +122,7 @@ export function enableTileDragging(
       )
         return;
       if (!pending.ghost) {
+        window.clearTimeout(pending.holdTimer);
         if (!pending.element.isConnected) {
           clear();
           return;
@@ -113,6 +130,9 @@ export function enableTileDragging(
         root.setPointerCapture(event.pointerId);
         const ghost = document.createElement("div");
         ghost.className = "rm-drag-ghost";
+        ghost.setAttribute("aria-hidden", "true");
+        pending.element.classList.remove("rm-hold-ready");
+        pending.element.classList.add("rm-drag-source");
         const tile = pending.element.matches("[data-tile]")
           ? pending.element
           : pending.element.parentElement?.querySelector<HTMLElement>(
@@ -122,6 +142,7 @@ export function enableTileDragging(
           const clone = tile.cloneNode(true) as HTMLElement;
           clone.style.width = `${tile.offsetWidth}px`;
           clone.style.height = `${tile.offsetHeight}px`;
+          clone.tabIndex = -1;
           ghost.append(clone);
         }
         if (pending.tiles.length > 1) {
@@ -139,12 +160,14 @@ export function enableTileDragging(
       if (highlight !== target?.element) {
         highlight?.classList.remove(
           "rm-drop-target",
+          "rm-drop-invalid",
           "rm-drop-after",
           "rm-drop-before",
         );
         highlight = target?.element ?? null;
         highlight?.classList.add("rm-drop-target");
       }
+      if (target) highlight?.classList.toggle("rm-drop-invalid", !canDrop(pending.tiles, target.target));
       if (highlight?.matches("[data-tile]")) {
         const rect = highlight.getBoundingClientRect();
         const after = event.clientX >= rect.left + rect.width / 2;
