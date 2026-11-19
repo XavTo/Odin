@@ -4,6 +4,17 @@ export const GRID_COLUMNS = 16;
 export const GRID_ROWS = 12;
 const capacity = GRID_COLUMNS * GRID_ROWS;
 
+export function boardView(groups: Card[][], cells: number[], selectionSize = 0) {
+  const usedColumns = Math.max(0, ...cells.map((cell, index) => cell % GRID_COLUMNS + groups[index].length));
+  const usedRows = Math.max(0, ...cells.map((cell) => Math.floor(cell / GRID_COLUMNS) + 1));
+  const occupied = groups.reduce((total, group) => total + group.length + 1, 0);
+  const columns = Math.min(GRID_COLUMNS, Math.max(10, usedColumns, selectionSize, Math.ceil(occupied / 7)));
+  return {
+    columns,
+    rows: Math.min(GRID_ROWS, Math.max(5, usedRows, Math.ceil((occupied + 10) / columns))),
+  };
+}
+
 function fits(cell: number, length: number, occupied: Set<number>): boolean {
   if (!Number.isInteger(cell) || cell < 0 || cell >= capacity ||
       cell % GRID_COLUMNS + length > GRID_COLUMNS) return false;
@@ -17,6 +28,7 @@ export function layoutBoard(
   before: Card[][] = [],
   previous: number[] = [],
   drop?: { group: Card[]; cell: number },
+  view?: { columns: number; rows: number },
 ): number[] {
   const cells = Array<number>(groups.length).fill(-1);
   const occupied = new Set<number>();
@@ -25,7 +37,9 @@ export function layoutBoard(
   ));
 
   function reserve(index: number, cell: number): boolean {
-    if (!fits(cell, groups[index].length, occupied)) return false;
+    const length = groups[index].length;
+    if (!fits(cell, length, occupied) || (view &&
+        (cell % GRID_COLUMNS + length > view.columns || Math.floor(cell / GRID_COLUMNS) >= view.rows))) return false;
     cells[index] = cell;
     for (let offset = 0; offset < groups[index].length; offset++) occupied.add(cell + offset);
     return true;
@@ -57,7 +71,7 @@ export function layoutBoard(
       return false;
     });
 
-  if (!fill()) {
+  if (!fill() && !view) {
     // Compact only if the gaps left by past turns no longer fit a changed group.
     cells.fill(-1);
     occupied.clear();
@@ -66,33 +80,34 @@ export function layoutBoard(
   return cells;
 }
 
-export function gridDropSpace(groups: Card[][], cells: number[], moving: Card[], cell: number) {
+export function gridDropSpace(groups: Card[][], cells: number[], moving: Card[], cell: number, columns: number) {
   const ids = new Set(moving.map((tile) => tile.id));
   const occupied = new Set<number>();
   groups.forEach((group, index) => {
     const length = group.filter((tile) => !ids.has(tile.id)).length;
     for (let offset = 0; offset < length; offset++) occupied.add(cells[index] + offset);
   });
-  if (!fits(cell, moving.length, occupied)) return;
-
   const first = cell - cell % GRID_COLUMNS;
-  const last = first + GRID_COLUMNS - moving.length;
+  const last = first + columns - moving.length;
+  const start = Math.min(cell, last);
+  if (start < first || !fits(start, moving.length, occupied)) return;
+
   const separated = (start: number) =>
     (start === first || !occupied.has(start - 1)) &&
-    (start === last || !occupied.has(start + moving.length));
-  if (separated(cell)) return { separateCell: cell };
+    (start % GRID_COLUMNS + moving.length === GRID_COLUMNS || !occupied.has(start + moving.length));
+  if (separated(start)) return { start, separateCell: start };
 
   // Give incompatible combinations a gap, without crossing into another row.
-  const away = cell > first && occupied.has(cell - 1) ? 1 : -1;
-  for (let distance = 1; distance < GRID_COLUMNS; distance++) {
-    for (const start of [cell + distance * away, cell - distance * away]) {
-      if (start >= first && start <= last && separated(start) && fits(start, moving.length, occupied)) {
+  const away = start > first && occupied.has(start - 1) ? 1 : -1;
+  for (let distance = 1; distance < columns; distance++) {
+    for (const candidate of [start + distance * away, start - distance * away]) {
+      if (candidate >= first && candidate <= last && separated(candidate)) {
         // A nearby combination should never cause the tile to jump across it.
-        const from = Math.min(start, cell);
-        const count = Math.abs(start - cell) + moving.length;
-        if (fits(from, count, occupied)) return { separateCell: start };
+        const from = Math.min(start, candidate);
+        const count = Math.abs(start - candidate) + moving.length;
+        if (fits(from, count, occupied)) return { start, separateCell: candidate };
       }
     }
   }
-  return { separateCell: cell };
+  return { start, separateCell: undefined };
 }

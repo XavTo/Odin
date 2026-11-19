@@ -222,8 +222,8 @@ body.rummikub-playing #connection:not([hidden]) {
   height: var(--tile-height);
   transform: translateY(-50%);
   border-radius: 5px;
-  background: #076d5966;
-  box-shadow: inset 0 0 0 2px #9ce5c8;
+  background: #076d591f;
+  box-shadow: inset 0 0 0 1px #9ce5c8a6;
   pointer-events: none;
 }
 .rm-cell.rm-drop-invalid::after {
@@ -247,6 +247,21 @@ body.rummikub-playing #connection:not([hidden]) {
 .rm-meld.is-preview {
   border-style: dashed;
 }
+.rm-placement-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+.rm-ghost-slot {
+  position: absolute;
+  inset: calc(100% * (var(--row) + .5) / var(--rows) - var(--tile-height) / 2) auto auto calc(100% * var(--column) / var(--columns));
+  width: calc(100% / var(--columns));
+  height: var(--tile-height);
+  padding: 2px;
+  opacity: .45;
+}
+.rm-ghost-slot .tile { pointer-events: none; }
 .rm-position {
   display: flex;
   width: calc(100% / var(--length));
@@ -450,6 +465,10 @@ body.rummikub-playing #connection:not([hidden]) {
 }
 .rm-rack .rummi-tile {
   --rm-tile: var(--rack-tile);
+}
+.rm-rack-slot {
+  flex: 0 0 var(--rack-tile);
+  height: calc(var(--rack-tile) * 1.24);
 }
 .rm-grid .tile.rummi-tile {
   width: 100%;

@@ -1,8 +1,8 @@
 import "./style.css";
 import "./rummikub-board.css";
-import { enableTileDragging, fitRummikub, meldTarget } from "./rummikub-board";
+import { enableTileDragging, fitRummikub, meldTarget, targetAt } from "./rummikub-board";
 import type { DropTarget } from "./rummikub-board";
-import { gridDropSpace, GRID_COLUMNS, GRID_ROWS, layoutBoard } from "./rummikub-grid";
+import { boardView, gridDropSpace, GRID_COLUMNS, layoutBoard } from "./rummikub-grid";
 import { playSound, prepareSound, soundEnabled, toggleSound } from "./sounds";
 import { PhotoEditor, photoFor } from "./photo-editor";
 import type { Photos } from "./photo-editor";
@@ -58,7 +58,7 @@ let selected = new Set<string>(),
   take: string | null = null;
 let draft: Card[][] | null = null;
 let draftCells: number[] = [];
-let rackOrder: string[] = [];
+let rackOrder: (string | null)[] = [];
 let boardFit: ReturnType<typeof fitRummikub> | undefined;
 let renderedBoard: Card[][] | undefined;
 let renderedCells: number[] = [];
@@ -246,6 +246,7 @@ socket.on("connect_error", (error) => {
 });
 socket.on("roomLeft", () => {
   customTurnSelected = false;
+  if (state?.game === "rummikub") clearRack(state.roomId);
   rackOrder = [];
   drawNotice = "";
   state = null;
@@ -263,10 +264,18 @@ socket.on("state", (next: PublicGameState) => {
     ? next.lastDraw : undefined;
   if (state?.roomId !== next.roomId) customTurnSelected = false;
   if (!sameRound) {
-    rackOrder = [];
+    rackOrder = !state && next.game === "rummikub" ? restoreRack(next) : [];
     rackSort = undefined;
     drawNotice = "";
     window.clearTimeout(drawNoticeTimer);
+  }
+  if (next.game === "rummikub") {
+    if (next.phase === "playing") syncRack(next);
+    else {
+      rackOrder = [];
+      rackSort = undefined;
+      clearRack(next.roomId);
+    }
   }
   const sameTurn =
     state?.roomId === next.roomId &&
@@ -351,12 +360,40 @@ function rackTiles(): Card[] {
   const hand = rack();
   if (!rackOrder.length) return game === "rummikub" ? hand : sorted(hand);
   const byId = new Map(hand.map((tile) => [tile.id, tile]));
-  const ordered: Card[] = [];
-  for (const id of rackOrder) {
-    const tile = byId.get(id);
-    if (tile) { ordered.push(tile); byId.delete(id); }
+  return rackOrder.flatMap((id) => id && byId.has(id) ? [byId.get(id)!] : []);
+}
+function clearRack(roomId: string) {
+  try { sessionStorage.removeItem(`odin-rack-${roomId}`); } catch { /* optional */ }
+}
+function restoreRack(s: PublicGameState): (string | null)[] {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(`odin-rack-${s.roomId}`) ?? "null");
+    if (saved?.round === s.round && saved.player === s.you?.id && Array.isArray(saved.slots) &&
+        saved.slots.length <= 106 && saved.slots.every((id: unknown) => id === null || typeof id === "string"))
+      return saved.slots;
+  } catch { /* ignore old data */ }
+  return [];
+}
+function saveRack(s: PublicGameState) {
+  try {
+    sessionStorage.setItem(`odin-rack-${s.roomId}`, JSON.stringify({ round: s.round, player: s.you?.id, slots: rackOrder }));
+  } catch { /* the layout remains available in this page */ }
+}
+function syncRack(s: PublicGameState) {
+  const remaining = new Set(s.hand.map((tile) => tile.id));
+  rackOrder = rackOrder.map((id) => id && remaining.delete(id) ? id : null);
+  for (const id of remaining) {
+    const slot = rackOrder.indexOf(null);
+    if (slot < 0) rackOrder.push(id);
+    else rackOrder[slot] = id;
   }
-  return [...ordered, ...byId.values()];
+  saveRack(s);
+}
+function reorderRack(ids: string[]) {
+  const sortedIds = new Set(ids);
+  let index = 0;
+  rackOrder = rackOrder.map((id) => id && sortedIds.has(id) ? ids[index++] : id);
+  if (state) saveRack(state);
 }
 function rackRun(firstId: string, tiles = rackTiles()): string[] {
   const first = tiles.find((tile) => tile.id === firstId);
@@ -371,6 +408,15 @@ function rackRun(firstId: string, tiles = rackTiles()): string[] {
   for (let value = first.value; byValue.has(value); value++)
     run.push(byValue.get(value)!.id);
   return run.length >= 3 ? run : [];
+}
+function widestRackRun(tiles: Card[]): number {
+  if (tiles.length <= 10) return 0;
+  const lengths = new Map<string, number>();
+  for (const tile of [...tiles].sort((a, b) => a.value - b.value)) {
+    if (tile.joker) continue;
+    lengths.set(`${tile.color}:${tile.value}`, 1 + (lengths.get(`${tile.color}:${tile.value - 1}`) ?? 0));
+  }
+  return Math.max(0, ...lengths.values());
 }
 function arrangeRack(tiles: Card[], mode: "runs" | "sets"): string[] {
   const ordered = [...tiles].sort((a, b) => a.value - b.value || a.color.localeCompare(b.color));
@@ -443,7 +489,10 @@ function card(tile: Card, source: string, disabled = false): string {
     game === "rummikub" || (!tile.joker && photosVisible)
       ? photoFor(state?.settings.photos ?? {}, tile.joker ? 0 : tile.value, game)
       : "";
-  return `<button type="button" class="tile ${game === "odin" ? "odin-card" : "rummi-tile"} color-${tile.color} ${selected.has(tile.id) || (source === "take" && take === tile.id) ? "selected" : ""} ${photo ? "photo" : ""}" data-tile="${esc(tile.id)}" data-source="${source}" aria-label="${tile.joker ? "Joker" : `${tile.value} ${colors[tile.color]}`}" aria-pressed="${selected.has(tile.id) || (source === "take" && take === tile.id)}" ${disabled ? "disabled" : ""} draggable="false">${photo ? `<img src="${esc(game === "rummikub" ? tileImage(photo) : photo)}" alt="" draggable="false">` : ""}<span class="tile-number">${tile.joker ? "★" : tile.value}</span>${game === "odin" ? `<span class="tile-color">${colors[tile.color]}</span>` : ""}</button>`;
+  const preview = source === "ghost";
+  const active = !preview && (selected.has(tile.id) || (source === "take" && take === tile.id));
+  const attributes = preview ? 'tabindex="-1"' : `data-tile="${esc(tile.id)}" data-source="${source}" aria-label="${tile.joker ? "Joker" : `${tile.value} ${colors[tile.color]}`}" aria-pressed="${active}"`;
+  return `<button type="button" class="tile ${game === "odin" ? "odin-card" : "rummi-tile"} color-${tile.color} ${active ? "selected" : ""} ${photo ? "photo" : ""}" ${attributes} ${disabled ? "disabled" : ""} draggable="false">${photo ? `<img src="${esc(game === "rummikub" ? tileImage(photo) : photo)}" alt="" draggable="false">` : ""}<span class="tile-number">${tile.joker ? "★" : tile.value}</span>${game === "odin" ? `<span class="tile-color">${colors[tile.color]}</span>` : ""}</button>`;
 }
 function players(): string {
   return `<div class="players">${state!.players.map((p) => `<article class="player ${p.isCurrent ? "current" : ""} ${p.forfeited ? "forfeited" : ""}"><span class="avatar">${esc(p.name.slice(0, 1).toUpperCase())}</span><div><strong>${esc(p.name)}${p.id === state!.you?.id ? " <small>(vous)</small>" : ""}</strong><p>${p.forfeited ? "A abandonné" : !p.connected ? "Reconnexion attendue" : p.isCurrent ? "À son tour" : p.isHost ? "Hôte de la salle" : "À la table"} · ${p.handCount} ${game === "odin" ? "cartes" : "tuiles"}</p><small>${p.score} points${game === "rummikub" ? (p.opened ? " · Première pose faite" : " · Première pose à faire") : p.passed ? " · A passé" : ""}</small></div>${host() && !p.connected && !p.forfeited ? `<button class="text danger" data-remove="${p.id}">Retirer</button>` : ""}</article>`).join("")}</div>`;
@@ -535,10 +584,10 @@ function rummikubStage(s: PublicGameState): string {
   const opened = s.players.find((player) => player.id === s.you?.id)?.opened;
   const groups = s.preview ?? board();
   const cells = visibleCells();
-  const usedRows = Math.max(0, ...cells.map((cell) => Math.floor(cell / GRID_COLUMNS) + 1));
-  const rows = Math.min(GRID_ROWS, Math.max(8, usedRows + 1));
   const hasInvalid = groups.some((group) => validMeld(group) === null);
   const tiles = rackTiles();
+  const { columns, rows } = boardView(groups, cells, Math.max(Math.min(13, selected.size), widestRackRun(s.hand)));
+  const tilesById = new Map(tiles.map((tile) => [tile.id, tile]));
   const placed = s.hand.length - tiles.length;
   const runHead = editable && selected.size > 1 ? tiles.find((tile) => {
     if (!selected.has(tile.id)) return false;
@@ -583,9 +632,9 @@ function rummikubStage(s: PublicGameState): string {
       </div>
       <div class="rm-playfield">
       <div class="rm-grid-area">
-        <div class="rm-grid" style="--columns:${GRID_COLUMNS};--rows:${rows}">
-          <div class="rm-grid-cells" aria-hidden="true">${Array.from({ length: rows * GRID_COLUMNS }, (_, cell) =>
-            `<button type="button" tabindex="-1" class="rm-cell" data-rm-cell="${cell}"></button>`).join("")}</div>
+        <div class="rm-grid" data-rm-columns="${columns}" data-rm-rows="${rows}" style="--columns:${columns};--rows:${rows}">
+          <div class="rm-grid-cells" aria-hidden="true">${Array.from({ length: rows * columns }, (_, cell) =>
+            `<button type="button" tabindex="-1" class="rm-cell" data-rm-cell="${Math.floor(cell / columns) * GRID_COLUMNS + cell % columns}"></button>`).join("")}</div>
           ${groups.map((group, row) => {
             const unlocked = editable && group.every(canTouch);
             const gap = (index: number) => `<button type="button" class="rm-gap" data-rm-gap="${row}:${index}" aria-label="${selected.size ? "Insérer" : "Scinder"} au rang ${index + 1} du groupe ${row + 1}" ${unlocked && (selected.size || (index > 0 && index < group.length)) ? "" : "disabled"}>${selected.size ? "+" : "·"}</button>`;
@@ -610,7 +659,10 @@ function rummikubStage(s: PublicGameState): string {
         </div>
         ${runHead ? `<button type="button" class="secondary compact rm-single-tile" data-rm-single="${esc(runHead.id)}" aria-label="Sélectionner uniquement le ${runHead.value} ${colors[runHead.color].toLowerCase()}">${runHead.value} seul</button>` : ""}
       </div>
-      <div class="rm-rack" data-rm-rack-count="${s.hand.length}" aria-label="Votre chevalet">${tiles.map((tile) => card(tile, "hand", !ready || busy)).join("")}</div>
+      <div class="rm-rack" data-rm-rack-count="${rackOrder.length}" aria-label="Votre chevalet">${rackOrder.map((id, slot) => {
+        const tile = id ? tilesById.get(id) : undefined;
+        return `<div class="rm-rack-slot" data-rm-rack-slot="${slot}"${tile ? "" : ' aria-hidden="true"'}>${tile ? card(tile, "hand", !ready || busy) : ""}</div>`;
+      }).join("")}</div>
     </div>
   </section>`;
 }
@@ -772,9 +824,9 @@ function publishDraft() {
     cells: draft ? draftCells : undefined,
   });
 }
-function applyDraft(next: Card[][], drop?: { group: Card[]; cell: number }) {
+function applyDraft(next: Card[][], cells = layoutBoard(next, board(), boardCells())) {
   if (!state) return;
-  const cells = layoutBoard(next, board(), boardCells(), drop);
+  if (cells.some((cell) => cell < 0)) return notify("Espace insuffisant sur le plateau.");
   if (sameBoard(next, board()) && sameCells(cells, boardCells())) return;
   draft = sameBoard(next, state.melds) && sameCells(cells, state.meldCells ?? layoutBoard(state.melds)) ? null : next;
   draftCells = cells;
@@ -844,33 +896,67 @@ function movableTiles(ids: string[]): Card[] {
   return ids.map((id) => lookup.get(id)).filter((tile): tile is Card => !!tile);
 }
 
-function planGridPlacement(groups: Card[][], cells: number[], moving: Card[], cell: number) {
-  const space = gridDropSpace(groups, cells, moving, cell);
+function planGridPlacement(groups: Card[][], cells: number[], moving: Card[], cell: number, columns: number) {
+  const space = gridDropSpace(groups, cells, moving, cell, columns);
   if (!space) return;
+  cell = space.start;
   const row = Math.floor(cell / GRID_COLUMNS);
   const movingIds = new Set(moving.map((tile) => tile.id));
   let left = -1;
   let right = -1;
   for (const [index, group] of groups.entries()) {
     const start = cells[index];
-    if (Math.floor(start / GRID_COLUMNS) !== row || !group.every(canTouch) ||
+    if (Math.floor(start / GRID_COLUMNS) !== row ||
         group.some((tile) => movingIds.has(tile.id))) continue;
     if (start + group.length === cell) left = index;
     if (cell + moving.length === start) right = index;
   }
-  if (left >= 0 && right >= 0) {
+  if (left >= 0 && right >= 0 && groups[left].every(canTouch) && groups[right].every(canTouch)) {
     const group = [...groups[left], ...moving, ...groups[right]];
-    if (canPlaceGroup(group)) return { group, joining: [left, right], cell: cells[left], previewCell: cell };
+    if (canPlaceGroup(group)) return { group, joining: [left, right], cell: cells[left] };
   }
-  if (left >= 0) {
+  if (left >= 0 && right < 0 && groups[left].every(canTouch)) {
     const group = [...groups[left], ...moving];
-    if (canPlaceGroup(group)) return { group, joining: [left], cell: cells[left], previewCell: cell };
+    if (canPlaceGroup(group)) return { group, joining: [left], cell: cells[left] };
   }
-  if (right >= 0) {
+  if (right >= 0 && left < 0 && groups[right].every(canTouch)) {
     const group = [...moving, ...groups[right]];
-    if (canPlaceGroup(group)) return { group, joining: [right], cell, previewCell: cell };
+    if (canPlaceGroup(group)) return { group, joining: [right], cell };
   }
-  return { group: moving, joining: [], cell: space.separateCell, previewCell: space.separateCell };
+  if (space.separateCell !== undefined)
+    return { group: moving, joining: [], cell: space.separateCell };
+}
+
+function planBoardDrop(moving: Card[], target: Exclude<DropTarget, { kind: "rack" }>) {
+  const before = board();
+  const previous = boardCells();
+  const grid = content.querySelector<HTMLElement>(".rm-grid")!;
+  const view = { columns: Number(grid.dataset.rmColumns), rows: Number(grid.dataset.rmRows) };
+  const movingIds = new Set(moving.map((tile) => tile.id));
+  const next = before.map((group) => group.filter((tile) => !movingIds.has(tile.id)));
+  let drop: { group: Card[]; cell: number } | undefined;
+  if (target.kind === "meld") {
+    const original = before[target.row];
+    if (!original?.every(canTouch)) return;
+    const groups = planMeldPlacement(original, moving, target);
+    if (!groups) return;
+    next.splice(target.row, 1, ...groups);
+  } else {
+    const ordered = orderNewGroup(moving);
+    if (!canPlaceGroup(ordered)) return;
+    if (target.cell !== undefined) {
+      const placement = planGridPlacement(before, previous, ordered, target.cell, view.columns);
+      if (!placement) return;
+      for (const index of placement.joining) next[index] = [];
+      drop = placement;
+    }
+    next.splice(target.index, 0, drop?.group ?? ordered);
+  }
+  const groups = next.filter((group) => group.length);
+  const cells = layoutBoard(groups, before, previous, drop,
+    target.kind === "new" && target.cell === undefined ? undefined : view);
+  if (cells.some((cell) => cell < 0) || (drop && cells[groups.indexOf(drop.group)] !== drop.cell)) return;
+  return { groups, cells };
 }
 
 function placeTiles(ids: string[], target: DropTarget) {
@@ -885,50 +971,32 @@ function placeTiles(ids: string[], target: DropTarget) {
     notify("Posez d’abord 30 points dans un nouveau groupe.");
     return;
   }
+  if (target.kind !== "rack") {
+    const plan = planBoardDrop(moving, target);
+    if (!plan) return notify("Cette pose ne forme pas une combinaison valide à cet endroit.");
+    applyDraft(plan.groups, plan.cells);
+    return;
+  }
   if (target.kind === "rack" && moving.some((tile) => !hand.has(tile.id))) {
     notify("Les tuiles des tours précédents restent sur la table.");
     return;
   }
   const next = before.map((group) => group.filter((tile) => !movingIds.has(tile.id)));
-  if (target.kind === "meld") {
-    const groups = planMeldPlacement(before[target.row], moving, target);
-    if (!groups) {
-      notify("Cette pose ne forme pas une combinaison valide.");
-      return;
-    }
-    next.splice(target.row, 1, ...groups);
-  } else if (target.kind === "new") {
-    const ordered = orderNewGroup(moving);
-    if (!canPlaceGroup(ordered)) {
-      notify("Cette pose ne forme pas une combinaison valide.");
-      return;
-    }
-    if (target.cell === undefined) {
-      next.splice(target.index, 0, ordered);
-      applyDraft(next.filter((group) => group.length));
-      return;
-    }
-    const placement = planGridPlacement(before, boardCells(), ordered, target.cell);
-    if (!placement) {
-      notify("Il n’y a pas assez de cases libres sur cette rangée.");
-      return;
-    }
-    for (const index of placement.joining) next[index] = [];
-    next.splice(target.index, 0, placement.group);
-    applyDraft(next.filter((group) => group.length), placement);
-    return;
-  } else {
-    const currentRack = rackTiles();
+  const currentRack = rackTiles();
+  // A tile returned from the table keeps its reserved slot.
+  const visible = new Set(currentRack.map((tile) => tile.id));
+  if (moving.every((tile) => visible.has(tile.id))) {
     const index = target.before ? currentRack.findIndex((tile) => tile.id === target.before) : currentRack.length;
     const insertion = currentRack.slice(0, index < 0 ? currentRack.length : index).filter((tile) => !movingIds.has(tile.id)).length;
     const remaining = currentRack.filter((tile) => !movingIds.has(tile.id));
     remaining.splice(insertion, 0, ...moving);
-    rackOrder = remaining.map((tile) => tile.id);
+    reorderRack(remaining.map((tile) => tile.id));
     rackSort = undefined;
-    selected.clear();
-    if (sameBoard(next.filter((group) => group.length), before)) { render(); return; }
   }
-  applyDraft(next.filter((group) => group.length));
+  selected.clear();
+  const groups = next.filter((group) => group.length);
+  if (sameBoard(groups, before)) render();
+  else applyDraft(groups);
 }
 function orderNewGroup(tiles: Card[]): Card[] {
   if (validMeld(tiles) !== null) return tiles;
@@ -1382,6 +1450,11 @@ app.addEventListener("click", (event) => {
       placeTiles([...selected], { kind: "new", index: board().length, cell: Number(t.dataset.rmCell) });
       return;
     }
+    if (t.classList.contains("rm-table") && clicked.closest(".rm-grid-area") && event.detail) {
+      const hit = targetAt(event.clientX, event.clientY);
+      if (hit?.target.kind === "new") placeTiles([...selected], hit.target);
+      return;
+    }
     const target = meldTarget(clicked, event.detail ? event.clientX : undefined);
     if (target) {
       const group = board()[target.row];
@@ -1408,7 +1481,7 @@ app.addEventListener("click", (event) => {
   }
   if (t.dataset.rmSort === "runs" || t.dataset.rmSort === "sets") {
     rackSort = t.dataset.rmSort;
-    rackOrder = arrangeRack(rackTiles(), rackSort);
+    reorderRack(arrangeRack(rackTiles(), rackSort));
     render();
     content.querySelector<HTMLButtonElement>(`[data-rm-sort="${t.dataset.rmSort}"]`)?.focus({ preventScroll: true });
     return;
@@ -1496,14 +1569,11 @@ cancelRummikubDrag = enableTileDragging(app, (element) => {
   if (!yourTurn() || busy) return false;
   const moving = movableTiles(ids);
   if (!moving.length || moving.some((tile) => !canTouch(tile))) return false;
-  if (target.kind === "new") {
-    const ordered = orderNewGroup(moving);
-    if (!canPlaceGroup(ordered)) return false;
-    if (target.cell === undefined) return true;
-    return planGridPlacement(board(), boardCells(), ordered, target.cell)?.previewCell ?? false;
-  }
-  const group = board()[target.row];
-  return !!group?.every(canTouch) && !!planMeldPlacement(group, moving, target);
+  const plan = planBoardDrop(moving, target);
+  if (!plan) return false;
+  const movingIds = new Set(ids);
+  return plan.groups.flatMap((group, index) => group.flatMap((tile, offset) => movingIds.has(tile.id)
+    ? [{ cell: plan.cells[index] + offset, html: card(tile, "ghost", true) }] : []));
 }, (element) => {
   if (!yourTurn() || busy || !element.dataset.tile) return [];
   if (element.dataset.source === "hand") return rackRun(element.dataset.tile);

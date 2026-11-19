@@ -4,6 +4,7 @@ export type DropTarget =
   | { kind: "meld"; row: number; index: number; tileId?: string }
   | { kind: "new"; index: number; cell?: number }
   | { kind: "rack"; before?: string };
+type PreviewTile = { cell: number; html: string };
 
 export function meldTarget(element: HTMLElement, x?: number): Extract<DropTarget, { kind: "meld" }> | null {
   const hit = element.closest<HTMLElement>("[data-rm-gap], [data-rm-position], [data-rm-end]");
@@ -40,26 +41,32 @@ export function targetAt(
     };
   }
   if (hit.classList.contains("rm-rack")) {
-    const tile = pointer?.closest<HTMLElement>("[data-tile]");
-    if (!tile) return { element: hit, target: { kind: "rack" } };
-    const rect = tile.getBoundingClientRect();
-    const before =
-      x > rect.left + rect.width / 2
-        ? (tile.nextElementSibling as HTMLElement | null)?.dataset.tile
-        : tile.dataset.tile;
-    return { element: tile, target: { kind: "rack", before } };
+    const slot = pointer?.closest<HTMLElement>("[data-rm-rack-slot]");
+    if (!slot) return { element: hit, target: { kind: "rack" } };
+    const { left, width } = slot.getBoundingClientRect();
+    let next = x > left + width / 2 ? slot.nextElementSibling : slot;
+    let before: string | undefined;
+    while (next && !before) {
+      before = next.querySelector<HTMLElement>("[data-tile]")?.dataset.tile;
+      next = next.nextElementSibling;
+    }
+    return { element: slot.querySelector<HTMLElement>("[data-tile]") ?? slot, target: { kind: "rack", before } };
   }
-  return {
-    element: hit,
-    target: { kind: "new", index: Number(hit.closest<HTMLElement>(".rm-table")!.dataset.rmCount) },
-  };
+  const grid = hit.querySelector<HTMLElement>(".rm-grid")!;
+  const { left, top, width, height } = grid.getBoundingClientRect();
+  const columns = Number(grid.dataset.rmColumns), rows = Number(grid.dataset.rmRows);
+  const column = Math.max(0, Math.min(columns - 1, Math.floor((x - left) / width * columns)));
+  const row = Math.max(0, Math.min(rows - 1, Math.floor((y - top) / height * rows)));
+  const cell = row * GRID_COLUMNS + column;
+  return { element: grid.querySelector<HTMLElement>(`[data-rm-cell="${cell}"]`)!,
+    target: { kind: "new", index: Number(hit.closest<HTMLElement>(".rm-table")!.dataset.rmCount), cell } };
 }
 
 export function enableTileDragging(
   root: HTMLElement,
   pick: (element: HTMLElement) => string[],
   drop: (ids: string[], target: DropTarget) => void,
-  previewDrop: (ids: string[], target: DropTarget) => boolean | number,
+  previewDrop: (ids: string[], target: DropTarget) => boolean | PreviewTile[],
   pickOnHold: (element: HTMLElement) => string[],
   selection: () => string[],
 ) {
@@ -73,32 +80,41 @@ export function enableTileDragging(
     holdTimer?: number;
   } | null = null;
   let highlights: HTMLElement[] = [];
+  let overlay: HTMLElement | undefined;
+  let previousPreview: { element: HTMLElement; key: string } | undefined;
   let suppressClick = false;
   function clearHighlights() {
     for (const tile of highlights)
       tile.classList.remove("rm-drop-target", "rm-drop-invalid", "rm-drop-after", "rm-drop-before");
     highlights = [];
+    overlay?.remove();
+    overlay = undefined;
+    previousPreview = undefined;
+    if (pending?.ghost) pending.ghost.hidden = false;
   }
   function showDrop(ids: string[], x: number, y: number, dragging: boolean) {
-    clearHighlights();
-    if (!ids.length) return;
-    const hit = targetAt(x, y);
-    if (!hit || (!dragging && hit.target.kind === "rack")) return;
+    const hit = ids.length ? targetAt(x, y) : null;
+    if (!hit || (!dragging && hit.target.kind === "rack")) return clearHighlights();
     const { element, target } = hit;
-    if (target.kind === "new" && target.cell === undefined) return;
+    const key = JSON.stringify([target, ids]);
+    if (previousPreview?.element === element && previousPreview.key === key) return;
+    clearHighlights();
+    previousPreview = { element, key };
     const preview = previewDrop(ids, target);
-    const cell = typeof preview === "number" ? preview : target.kind === "new" ? target.cell : undefined;
-    const start = cell === undefined ? element :
-      element.parentElement?.querySelector<HTMLElement>(`[data-rm-cell="${cell}"]`) ?? element;
-    highlights = [start];
-    if (cell !== undefined) {
-      let next = start.nextElementSibling;
-      const length = Math.min(ids.length, GRID_COLUMNS - cell % GRID_COLUMNS);
-      while (next instanceof HTMLElement && highlights.length < length) {
-        highlights.push(next);
-        next = next.nextElementSibling;
+    const grid = element.closest<HTMLElement>(".rm-grid");
+    if (Array.isArray(preview) && grid && preview.length) {
+      overlay = document.createElement("div");
+      overlay.className = "rm-placement-preview";
+      overlay.setAttribute("aria-hidden", "true");
+      overlay.innerHTML = preview.map(({ cell, html }) =>
+        `<div class="rm-ghost-slot" style="--column:${cell % GRID_COLUMNS};--row:${Math.floor(cell / GRID_COLUMNS)}">${html}</div>`).join("");
+      grid.append(overlay);
+      if (pending?.ghost) pending.ghost.hidden = true;
+      for (const { cell } of preview) {
+        const marker = grid.querySelector<HTMLElement>(`[data-rm-cell="${cell}"]`);
+        if (marker) highlights.push(marker);
       }
-    }
+    } else highlights = [element];
     for (const highlight of highlights) {
       highlight.classList.add("rm-drop-target");
       highlight.classList.toggle("rm-drop-invalid", preview === false);
@@ -211,6 +227,7 @@ export function enableTileDragging(
   });
   window.addEventListener("pointercancel", clear);
   window.addEventListener("blur", clear);
+  document.documentElement.addEventListener("pointerleave", clearHighlights);
   root.addEventListener(
     "click",
     (event) => {
