@@ -108,6 +108,7 @@ export interface PublicGameState {
   roomId: string;
   serverNow: number;
   game: GameType;
+  solo?: boolean;
   phase: GamePhase;
   revision: number;
   players: PublicPlayer[];

@@ -52,9 +52,9 @@ export class GameStore {
           pausedAt: r.pausedAt ?? r.updatedAt,
           players: r.players.map((p) => ({
             ...p,
-            connected: false,
+            connected: p.bot === true,
             socketId: '',
-            disconnectedAt: p.disconnectedAt ?? now,
+            disconnectedAt: p.bot ? null : (p.disconnectedAt ?? now),
           })),
           state: { ...r.state, passed: new Set(r.state.passed) },
         })),

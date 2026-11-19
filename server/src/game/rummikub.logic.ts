@@ -1,5 +1,7 @@
 import { Card, CardColor } from './game.types';
 export const RUMMI_COLORS: CardColor[] = ['red', 'blue', 'orange', 'black'];
+export const GRID_COLUMNS = 16;
+export const GRID_ROWS = 12;
 export function createTiles(): Card[] {
   const tiles: Card[] = [];
   for (let copy = 0; copy < 2; copy++)
@@ -38,15 +40,13 @@ export function meldValue(tiles: Card[]): number | null {
 }
 export function validateMeldCells(groups: Card[][], cells: unknown): number[] | undefined {
   if (cells === undefined) return;
-  const columns = 16;
-  const rows = 12;
   const occupied = new Set<number>();
   if (!Array.isArray(cells) || cells.length !== groups.length)
     throw new Error('Positions du plateau invalides.');
   return cells.map((cell: unknown, index: number) => {
     const length = groups[index].length;
     if (typeof cell !== 'number' || !Number.isInteger(cell) ||
-        cell < 0 || cell >= columns * rows || cell % columns + length > columns)
+        cell < 0 || cell >= GRID_COLUMNS * GRID_ROWS || cell % GRID_COLUMNS + length > GRID_COLUMNS)
       throw new Error('Une combinaison dépasse du plateau.');
     for (let offset = 0; offset < length; offset++) {
       const position = cell + offset;

@@ -367,6 +367,60 @@ describe('Persistent multiplayer games', () => {
     expect(service.tick()).toHaveLength(0);
     expect(r.state.currentPlayerId).not.toBe(current.id);
   });
+  it('starts a private solo game and lets the bot open without moving other groups', () => {
+    let now = 100000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const { profile } = service.connect('a');
+    service.connect('b');
+    const r = service.createSoloRoom(undefined, 'a');
+    const [human, bot] = r.players;
+    expect(r.state.currentPlayerId).toBe(human.id);
+    expect(service.buildStateForPlayer(r, human.id)).toMatchObject({
+      solo: true, phase: 'playing', deckCount: 78,
+    });
+    expect(human.hand).toHaveLength(14);
+    expect(bot.hand).toHaveLength(14);
+    expect(() => service.joinRoom(r.id, 'Bob', 'b')).toThrow('solo');
+
+    human.hand = [card(10, 'blue'), card(11, 'blue'), card(12, 'blue'), card(3)];
+    bot.hand = [card(10), card(11), card(12), card(13)];
+    service.submitMelds(r.id, 'a', [human.hand.slice(0, 3).map((t) => t.id)], r.revision, [17]);
+    expect(service.tick()).toEqual([]);
+    now += 1000;
+    expect(service.tick()).toEqual([r]);
+    expect(r.state.meldCells?.[0]).toBe(17);
+    expect(r.state.melds[1]).toHaveLength(4);
+    expect(r.state.winners).toEqual([bot.id]);
+    expect(profile.stats.rummikub.played).toBe(0);
+    expect(service.leaderboard('rummikub')).toEqual([]);
+    expect(service.startGame(r.id, 'a').state.currentPlayerId).toBe(human.id);
+  });
+  it('pauses solo play across disconnect and restart, then has the bot draw once', () => {
+    let now = 100000;
+    jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const { token } = service.connect('a');
+    const r = service.createSoloRoom('Alice', 'a');
+    const [human, bot] = r.players;
+    bot.hand = [card(2), card(4), card(6)];
+    service.draw(r.id, 'a', r.revision);
+    expect(service.tick()).toEqual([]);
+    service.disconnect('a');
+    now += 61000;
+    expect(service.tick()).toEqual([]);
+    const restarted = new GameService(new GameStore());
+    const resumed = restarted.connect('a2', token).room!;
+    expect(resumed.id).toBe(r.id);
+    expect(resumed.players[1].connected).toBe(true);
+    expect(restarted.tick()).toEqual([]);
+    now += 1000;
+    expect(restarted.tick()).toEqual([resumed]);
+    expect(resumed.state.currentPlayerId).toBe(human.id);
+    expect(resumed.state.lastDraw).toMatchObject({ playerId: bot.id, drewTile: true });
+    expect(resumed.state.deck).toHaveLength(76);
+    expect(restarted.tick()).toEqual([]);
+    expect(restarted.leaveRoomBySocket('a2')).toBeNull();
+    expect(() => restarted.getRoom(r.id)).toThrow('introuvable');
+  });
   it('scores a blocked Rummikub game by differences with joker penalties', () => {
     const r = room('rummikub');
     const [a, b] = r.players;

@@ -455,7 +455,9 @@ function gameChoices(): string {
   return `<div class="game-choices" role="group" aria-label="Choisir le jeu"><button class="game-choice ${game === "odin" ? "active" : ""}" data-game="odin" aria-pressed="${game === "odin"}"><div class="game-art odin-art"><span style="background-image:url(&quot;${esc(photoFor(photoLibrary, 8, "odin"))}&quot;)">8</span><span style="background-image:url(&quot;${esc(photoFor(photoLibrary, 9, "odin"))}&quot;)">9</span></div><div><span class="eyebrow">2 à 6 joueurs · Cartes</span><h2>Odin</h2><p>9 cartes par joueur.<br>Le plus petit score gagne.</p></div><span class="choose">${game === "odin" ? "Sélectionné ✓" : "Choisir Odin →"}</span></button><button class="game-choice ${game === "rummikub" ? "active" : ""}" data-game="rummikub" aria-pressed="${game === "rummikub"}"><div class="game-art rummi-art">${[11, 12, 13].map(n => `<span><img src="${esc(photoFor(photoLibrary, n, "rummikub"))}" alt=""><b>${n}</b></span>`).join("")}</div><div><span class="eyebrow">2 à 4 joueurs · Tuiles</span><h2>Rummikub</h2><p>14 tuiles par joueur.<br>Première pose de 30 points.</p></div><span class="choose">${game === "rummikub" ? "Sélectionné ✓" : "Choisir Rummikub →"}</span></button></div>`;
 }
 function home(): string {
-  return `${gameChoices()}<section class="panel home-join"><div><h2>Salle</h2></div><div class="join-form"><label>Pseudo<input id="player-name" autocomplete="nickname" maxlength="24" placeholder="Pseudo" value="${esc(playerName)}"></label><button data-action="create" ${!ready || busy ? "disabled" : ""}>Créer une salle <span>→</span></button><div class="join-code"><input id="room-code" aria-label="Code de la salle" placeholder="0000" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" value="${esc(code)}"><button class="secondary" data-action="join" ${!ready || busy ? "disabled" : ""}>Rejoindre</button></div></div></section><button class="admin-entry" data-action="admin" aria-label="Administration" title="Administration" ${!ready ? "disabled" : ""}>⚙</button>`;
+  const disabled = !ready || busy ? "disabled" : "";
+  const solo = game === "rummikub" ? `<button class="secondary" data-action="solo" ${disabled}>Jouer en solo <span>→</span></button>` : "";
+  return `${gameChoices()}<section class="panel home-join"><div><h2>${solo ? "Partie" : "Salle"}</h2></div><div class="join-form"><label>Pseudo<input id="player-name" autocomplete="nickname" maxlength="24" placeholder="Pseudo" value="${esc(playerName)}"></label><button data-action="create" ${!ready || busy ? "disabled" : ""}>Créer une salle <span>→</span></button><div class="join-code"><input id="room-code" aria-label="Code de la salle" placeholder="0000" inputmode="numeric" pattern="[0-9]{4}" minlength="4" maxlength="4" value="${esc(code)}"><button class="secondary" data-action="join" ${!ready || busy ? "disabled" : ""}>Rejoindre</button></div>${solo}</div></section><button class="admin-entry" data-action="admin" aria-label="Administration" title="Administration" ${!ready ? "disabled" : ""}>⚙</button>`;
 }
 function settings(): string {
   const s = state!;
@@ -466,7 +468,7 @@ function settings(): string {
 function room(): string {
   const s = state!;
   if (s.game === "rummikub" && s.phase === "playing") return rummikubStage(s);
-  return `<div class="room-bar"><div><span class="eyebrow">${names[game]}</span><h2>${s.roomId} <button class="secondary compact" data-action="invite">Copier le lien</button></h2></div><div class="room-actions"><button class="secondary compact room-control sound-toggle" data-action="sound" aria-pressed="${soundEnabled()}">${soundEnabled() ? "Son activé" : "Son coupé"}</button><button class="secondary compact room-control" data-action="leave" ${!ready || busy ? "disabled" : ""}>${s.phase === "playing" || s.phase === "round_end" ? "Abandonner" : "Quitter la salle"}</button></div></div>${players()}${!host() && s.players.some((p) => p.isHost && !p.connected) ? '<p class="muted">L’hôte est déconnecté. Après 30 secondes, vous pouvez <button class="text" data-action="claim-host">reprendre le rôle d’hôte</button>.</p>' : ""}${s.phase === "lobby" ? `${settings()}<div class="start-row">${s.players.length < 2 ? "<p>2 joueurs minimum.</p>" : !host() ? "<p>En attente de l’hôte.</p>" : ""}<button data-action="start" ${!host() || !ready || busy || s.players.filter((p) => !p.forfeited).length < 2 || s.players.some((p) => !p.connected) ? "disabled" : ""}>Lancer la partie →</button></div>` : playArea()}`;
+  return `<div class="room-bar"><div><span class="eyebrow">${names[game]}</span><h2>${s.solo ? "Solo" : `${s.roomId} <button class="secondary compact" data-action="invite">Copier le lien</button>`}</h2></div><div class="room-actions"><button class="secondary compact room-control sound-toggle" data-action="sound" aria-pressed="${soundEnabled()}">${soundEnabled() ? "Son activé" : "Son coupé"}</button><button class="secondary compact room-control" data-action="leave" ${!ready || busy ? "disabled" : ""}>${s.phase === "playing" || s.phase === "round_end" ? "Abandonner" : "Quitter la salle"}</button></div></div>${players()}${!host() && s.players.some((p) => p.isHost && !p.connected) ? '<p class="muted">L’hôte est déconnecté. Après 30 secondes, vous pouvez <button class="text" data-action="claim-host">reprendre le rôle d’hôte</button>.</p>' : ""}${s.phase === "lobby" ? `${settings()}<div class="start-row">${s.players.length < 2 ? "<p>2 joueurs minimum.</p>" : !host() ? "<p>En attente de l’hôte.</p>" : ""}<button data-action="start" ${!host() || !ready || busy || s.players.filter((p) => !p.forfeited).length < 2 || s.players.some((p) => !p.connected) ? "disabled" : ""}>Lancer la partie →</button></div>` : playArea()}`;
 }
 function result(): string {
   const s = state!;
@@ -550,7 +552,7 @@ function rummikubStage(s: PublicGameState): string {
     .filter((group) => group.every((tile) => s.hand.some((handTile) => handTile.id === tile.id)))
     .reduce((sum, group) => sum + (validMeld(group) ?? 0), 0);
   const canValidate = editable && draft && placed > 0 && !hasInvalid && (opened || openingPoints >= 30);
-  const turn = s.paused ? "Partie en pause" : me ? "À vous de jouer" : `Au tour de ${current?.name ?? "l’adversaire"}`;
+  const turn = s.paused ? "Partie en pause" : me ? "À vous de jouer" : s.solo ? "Tour du bot" : `Au tour de ${current?.name ?? "l’adversaire"}`;
   const hint = s.preview ? `${current?.name ?? "Le joueur"} prépare son coup` :
     (me && !opened ? `Première pose · ${openingPoints}/30 points` :
       me && hasInvalid ? "Complétez les groupes en orange" : "");
@@ -568,10 +570,10 @@ function rummikubStage(s: PublicGameState): string {
       <div class="rm-menu">
         <button class="secondary compact" data-action="sound" aria-pressed="${soundEnabled()}" aria-label="${soundEnabled() ? "Couper le son" : "Activer le son"}" title="${soundEnabled() ? "Son activé" : "Son coupé"}">${soundEnabled() ? "♫" : "♪̸"}</button>
         <button class="secondary compact" data-action="rules" aria-haspopup="dialog" aria-label="Règles du Rummikub">?</button>
-        <button class="secondary compact" data-action="ranking" aria-haspopup="dialog" aria-label="Classement">🏆</button>
+        ${s.solo ? "" : '<button class="secondary compact" data-action="ranking" aria-haspopup="dialog" aria-label="Classement">🏆</button>'}
         <button class="secondary compact" data-action="leave" ${!ready || busy ? "disabled" : ""}>Quitter</button>
       </div>
-      <div class="rm-players"><button class="secondary compact rm-invite" data-action="invite" aria-label="Copier le lien de la salle ${s.roomId}">${s.roomId}</button>${s.players.map((player) => `<div class="rm-player ${player.isCurrent ? "active" : ""} ${!player.connected ? "offline" : ""}" data-rm-player="${esc(player.id)}" title="${esc(player.name)} · ${player.handCount} tuiles${!player.connected ? " · Déconnecté" : ""}"><strong>${player.id === s.you?.id ? "Vous" : esc(player.name)}</strong><span>${player.handCount} ▥</span>${player.isCurrent ? '<span class="rm-turn-ring" aria-hidden="true"></span>' : ""}${host() && !player.connected && !player.forfeited ? `<button class="secondary compact" data-remove="${esc(player.id)}" aria-label="Retirer ${esc(player.name)}">×</button>` : ""}</div>`).join("")}${!host() && s.players.some((p) => p.isHost && !p.connected) ? '<button class="secondary compact" data-action="claim-host">Devenir hôte</button>' : ""}</div>
+      <div class="rm-players">${s.solo ? '<span class="rm-player">Solo</span>' : `<button class="secondary compact rm-invite" data-action="invite" aria-label="Copier le lien de la salle ${s.roomId}">${s.roomId}</button>`}${s.players.map((player) => `<div class="rm-player ${player.isCurrent ? "active" : ""} ${!player.connected ? "offline" : ""}" data-rm-player="${esc(player.id)}" title="${esc(player.name)} · ${player.handCount} tuiles${!player.connected ? " · Déconnecté" : ""}"><strong>${player.id === s.you?.id ? "Vous" : esc(player.name)}</strong><span>${player.handCount} ▥</span>${player.isCurrent ? '<span class="rm-turn-ring" aria-hidden="true"></span>' : ""}${host() && !player.connected && !player.forfeited ? `<button class="secondary compact" data-remove="${esc(player.id)}" aria-label="Retirer ${esc(player.name)}">×</button>` : ""}</div>`).join("")}${!host() && s.players.some((p) => p.isHost && !p.connected) ? '<button class="secondary compact" data-action="claim-host">Devenir hôte</button>' : ""}</div>
     </header>
     <div class="rm-table" data-rm-count="${groups.length}" aria-label="Table de jeu">
       <div class="rm-table-status">
@@ -1179,6 +1181,9 @@ async function action(name: string) {
     case "confirm-no":
       finishConfirmation(false);
       return;
+    case "solo":
+      await command("createSoloRoom", { name: playerName.trim() || undefined });
+      return;
     case "create":
     case "join":
       if (!playerName.trim()) return notify("Choisissez votre pseudo.");
@@ -1311,7 +1316,9 @@ async function action(name: string) {
       if (
         (state?.phase === "playing" || state?.phase === "round_end") &&
         !(await askConfirmation(
-          "Abandonner cette partie ? Pour faire une pause, vous pouvez simplement fermer la page et revenir.",
+          state.solo
+            ? "Quitter la partie solo ?"
+            : "Abandonner cette partie ? Pour faire une pause, vous pouvez simplement fermer la page et revenir.",
         ))
       )
         return;
@@ -1404,7 +1411,7 @@ app.addEventListener("click", (event) => {
     }
   }
   if (t.dataset.action) {
-    if (["create", "join", "start"].includes(t.dataset.action)) playSound("select", true);
+    if (["create", "join", "solo", "start"].includes(t.dataset.action)) playSound("select", true);
     if (["play", "pass", "draw", "validate", "undo", "reset"].includes(t.dataset.action)) playSound("action", true);
     void action(t.dataset.action);
     return;

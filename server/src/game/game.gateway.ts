@@ -87,6 +87,10 @@ export class GameGateway
       this.gameService.createRoom(p?.name, c.id, p?.game),
     );
   }
+  @SubscribeMessage('createSoloRoom')
+  createSolo(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
+    return this.run(c, () => this.gameService.createSoloRoom(p?.name, c.id));
+  }
   @SubscribeMessage('joinRoom')
   join(@MessageBody() p: Payload, @ConnectedSocket() c: Socket) {
     return this.run(c, () =>
@@ -258,7 +262,7 @@ export class GameGateway
   }
   private emitState(room: GameRoom): void {
     for (const p of room.players)
-      if (p.connected && !p.forfeited)
+      if (p.connected && p.socketId && !p.forfeited)
         this.server
           .to(p.socketId)
           .emit('state', this.gameService.buildStateForPlayer(room, p.id));

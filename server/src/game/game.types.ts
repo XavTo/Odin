@@ -21,6 +21,7 @@ export interface GameSettings {
 export interface Player {
   id: string;
   name: string;
+  bot?: boolean;
   socketId: string;
   connected: boolean;
   disconnectedAt: number | null;
@@ -68,6 +69,7 @@ export interface GameState {
 export interface GameRoom {
   id: string;
   game: GameType;
+  solo?: boolean;
   hostId: string;
   players: Player[];
   state: GameState;
@@ -108,6 +110,7 @@ export interface PublicGameState {
   roomId: string;
   serverNow: number;
   game: GameType;
+  solo?: boolean;
   phase: GamePhase;
   revision: number;
   players: PublicPlayer[];

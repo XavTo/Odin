@@ -19,11 +19,13 @@ import {
   hasUniqueCardIds,
 } from './game.logic';
 import { createTiles, rackValue, validateBoard, validateMeldCells } from './rummikub.logic';
+import { planBotMove } from './rummikub.bot';
 import { GameStore } from './game.store';
 
 @Injectable()
 export class GameService implements OnModuleDestroy {
   private previews = new WeakMap<GameRoom, { revision: number; melds: Card[][]; cells?: number[] }>();
+  private botTurns = new WeakMap<GameRoom, number>();
   private rooms = new Map<string, GameRoom>();
   private profiles = new Map<string, Profile>();
   private photos: Record<string, string> = {};
@@ -105,8 +107,10 @@ export class GameService implements OnModuleDestroy {
     player.connected = false;
     player.socketId = '';
     player.disconnectedAt = Date.now();
-    if (!room.players.some((p) => p.connected && !p.forfeited))
+    if (!room.players.some((p) => p.connected && !p.forfeited && !p.bot)) {
       room.pausedAt = Date.now();
+      this.botTurns.delete(room);
+    }
     this.touch(room);
     return room;
   }
@@ -114,15 +118,17 @@ export class GameService implements OnModuleDestroy {
     name: unknown,
     socketId: string,
     game: unknown = 'odin',
+    solo = false,
   ): GameRoom {
     if (game !== 'odin' && game !== 'rummikub') throw new Error('Jeu inconnu.');
     const profile = this.profileForSocket(socketId);
     this.assertAvailable(profile.id);
-    const player = this.createPlayer(profile, name, socketId);
+    const player = this.createPlayer(solo ? { ...profile } : profile, name, socketId);
     const id = this.roomCode();
     const room: GameRoom = {
       id,
       game,
+      solo: solo || undefined,
       hostId: player.id,
       players: [player],
       roundStarterId: null,
@@ -154,12 +160,31 @@ export class GameService implements OnModuleDestroy {
         emptyPasses: 0,
       },
     };
+    if (solo) {
+      room.players.push({
+        id: randomUUID(),
+        name: 'Bot',
+        bot: true,
+        socketId: '',
+        connected: true,
+        disconnectedAt: null,
+        hand: [],
+        score: 0,
+        opened: false,
+        forfeited: false,
+      });
+    }
     this.rooms.set(id, room);
+    if (solo) return this.startGame(id, socketId);
     this.touch(room);
     return room;
   }
+  createSoloRoom(name: unknown, socketId: string): GameRoom {
+    return this.createRoom(name ?? 'Vous', socketId, 'rummikub', true);
+  }
   joinRoom(roomId: unknown, name: unknown, socketId: string): GameRoom {
     const room = this.getRoom(roomId);
+    if (room.solo) throw new Error('Cette partie est réservée au joueur solo.');
     const profile = this.profileForSocket(socketId);
     this.assertAvailable(profile.id);
     if (room.state.phase !== 'lobby')
@@ -208,6 +233,11 @@ export class GameService implements OnModuleDestroy {
     return this.removePlayer(room, player);
   }
   private removePlayer(room: GameRoom, player: Player): GameRoom | null {
+    if (room.solo) {
+      this.rooms.delete(room.id);
+      this.save();
+      return null;
+    }
     if (room.state.phase === 'lobby' || room.state.phase === 'game_end')
       room.players = room.players.filter((p) => p.id !== player.id);
     else {
@@ -264,8 +294,9 @@ export class GameService implements OnModuleDestroy {
     room.state.round = 0;
     room.rankingRecorded = false;
     room.moves = 0;
-    room.roundStarterId =
-      room.players[Math.floor(Math.random() * room.players.length)].id;
+    room.roundStarterId = room.solo
+      ? room.hostId
+      : room.players[Math.floor(Math.random() * room.players.length)].id;
     this.startRound(room);
     this.touch(room);
     return room;
@@ -502,6 +533,11 @@ export class GameService implements OnModuleDestroy {
   ): GameRoom {
     const room = this.getRoom(roomId);
     const player = this.requireTurn(room, socketId, 'rummikub', revision);
+    this.playRummikub(room, player, melds, positions);
+    this.touch(room);
+    return room;
+  }
+  private playRummikub(room: GameRoom, player: Player, melds: unknown, positions?: unknown): void {
     const valid = validateBoard(
       room.state.melds,
       player.hand,
@@ -520,8 +556,6 @@ export class GameService implements OnModuleDestroy {
       room.state.currentPlayerId = this.next(room, player.id);
       this.deadline(room);
     }
-    this.touch(room);
-    return room;
   }
   draw(roomId: unknown, socketId: string, revision?: unknown): GameRoom {
     const room = this.getRoom(roomId);
@@ -558,28 +592,43 @@ export class GameService implements OnModuleDestroy {
   }
   tick(): GameRoom[] {
     const changed: GameRoom[] = [];
+    const now = Date.now();
     for (const room of this.rooms.values()) {
       if (
         room.game === 'rummikub' &&
         room.state.phase === 'playing' &&
-        !room.pausedAt &&
-        room.state.deadline &&
-        Date.now() >= room.state.deadline
+        !room.pausedAt
       ) {
-        this.drawFor(
-          room,
-          room.players.find((p) => p.id === room.state.currentPlayerId)!,
-          true,
-        );
-        this.touch(room);
-        changed.push(room);
+        const player = room.players.find((p) => p.id === room.state.currentPlayerId)!;
+        if (room.state.deadline && now >= room.state.deadline) {
+          this.botTurns.delete(room);
+          this.drawFor(room, player, true);
+          this.touch(room);
+          changed.push(room);
+        } else if (player.bot && this.playBotTurn(room, player, now)) {
+          changed.push(room);
+        }
       }
-      if (room.pausedAt && Date.now() - room.updatedAt > 7 * 86400000) {
+      if (room.pausedAt && now - room.updatedAt > 7 * 86400000) {
         this.rooms.delete(room.id);
         this.save();
       }
     }
     return changed;
+  }
+  private playBotTurn(room: GameRoom, player: Player, now: number): boolean {
+    const readyAt = this.botTurns.get(room);
+    if (readyAt === undefined) {
+      this.botTurns.set(room, now + 900);
+      return false;
+    }
+    if (now < readyAt) return false;
+    this.botTurns.delete(room);
+    const play = planBotMove(room.state, player);
+    if (play) this.playRummikub(room, player, play.melds, play.cells);
+    else this.drawFor(room, player);
+    this.touch(room);
+    return true;
   }
   leaderboard(game: unknown): Array<{ id: string; name: string } & GameStats> {
     if (game !== 'odin' && game !== 'rummikub') throw new Error('Jeu inconnu.');
@@ -601,6 +650,7 @@ export class GameService implements OnModuleDestroy {
       roomId: room.id,
       serverNow: Date.now(),
       game: room.game,
+      solo: room.solo,
       phase: room.state.phase,
       revision: room.revision,
       players: room.players.map((p) => ({
@@ -749,7 +799,7 @@ export class GameService implements OnModuleDestroy {
     this.recordRanking(room);
   }
   private recordRanking(room: GameRoom): void {
-    if (room.rankingRecorded || !room.moves || !room.state.winners) return;
+    if (room.solo || room.rankingRecorded || !room.moves || !room.state.winners) return;
     const winners = room.state.winners;
     const old = new Map(
       room.players.map((p) => [
