@@ -66,14 +66,33 @@ export function layoutBoard(
   return cells;
 }
 
-export function clearGridDrop(
-  groups: Card[][], cells: number[], moving: Card[], cell: number,
-): boolean {
+export function gridDropSpace(groups: Card[][], cells: number[], moving: Card[], cell: number) {
   const ids = new Set(moving.map((tile) => tile.id));
   const occupied = new Set<number>();
   groups.forEach((group, index) => {
     const length = group.filter((tile) => !ids.has(tile.id)).length;
     for (let offset = 0; offset < length; offset++) occupied.add(cells[index] + offset);
   });
-  return fits(cell, moving.length, occupied);
+  if (!fits(cell, moving.length, occupied)) return;
+
+  const first = cell - cell % GRID_COLUMNS;
+  const last = first + GRID_COLUMNS - moving.length;
+  const separated = (start: number) =>
+    (start === first || !occupied.has(start - 1)) &&
+    (start === last || !occupied.has(start + moving.length));
+  if (separated(cell)) return { separateCell: cell };
+
+  // Give incompatible combinations a gap, without crossing into another row.
+  const away = cell > first && occupied.has(cell - 1) ? 1 : -1;
+  for (let distance = 1; distance < GRID_COLUMNS; distance++) {
+    for (const start of [cell + distance * away, cell - distance * away]) {
+      if (start >= first && start <= last && separated(start) && fits(start, moving.length, occupied)) {
+        // A nearby combination should never cause the tile to jump across it.
+        const from = Math.min(start, cell);
+        const count = Math.abs(start - cell) + moving.length;
+        if (fits(from, count, occupied)) return { separateCell: start };
+      }
+    }
+  }
+  return { separateCell: cell };
 }

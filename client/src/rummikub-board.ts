@@ -24,7 +24,7 @@ export function targetAt(
 ): { element: HTMLElement; target: DropTarget } | null {
   const pointer = document.elementFromPoint(x, y);
   const hit = pointer?.closest<HTMLElement>(
-    "[data-rm-gap], [data-rm-new], [data-rm-cell], [data-rm-position], [data-rm-end], .rm-rack, .rm-table",
+    "[data-rm-gap], [data-rm-cell], [data-rm-position], [data-rm-end], .rm-rack, .rm-grid-area",
   );
   if (!hit) return null;
   const meld = meldTarget(hit, x);
@@ -39,11 +39,6 @@ export function targetAt(
       },
     };
   }
-  if (hit.dataset.rmNew !== undefined)
-    return {
-      element: hit,
-      target: { kind: "new", index: Number(hit.dataset.rmNew) },
-    };
   if (hit.classList.contains("rm-rack")) {
     const tile = pointer?.closest<HTMLElement>("[data-tile]");
     if (!tile) return { element: hit, target: { kind: "rack" } };
@@ -56,7 +51,7 @@ export function targetAt(
   }
   return {
     element: hit,
-    target: { kind: "new", index: Number(hit.dataset.rmCount) },
+    target: { kind: "new", index: Number(hit.closest<HTMLElement>(".rm-table")!.dataset.rmCount) },
   };
 }
 
@@ -64,8 +59,9 @@ export function enableTileDragging(
   root: HTMLElement,
   pick: (element: HTMLElement) => string[],
   drop: (ids: string[], target: DropTarget) => void,
-  canDrop: (ids: string[], target: DropTarget) => boolean,
+  previewDrop: (ids: string[], target: DropTarget) => boolean | number,
   pickOnHold: (element: HTMLElement) => string[],
+  selection: () => string[],
 ) {
   let pending: {
     id: number;
@@ -82,6 +78,35 @@ export function enableTileDragging(
     for (const tile of highlights)
       tile.classList.remove("rm-drop-target", "rm-drop-invalid", "rm-drop-after", "rm-drop-before");
     highlights = [];
+  }
+  function showDrop(ids: string[], x: number, y: number, dragging: boolean) {
+    clearHighlights();
+    if (!ids.length) return;
+    const hit = targetAt(x, y);
+    if (!hit || (!dragging && hit.target.kind === "rack")) return;
+    const { element, target } = hit;
+    if (target.kind === "new" && target.cell === undefined) return;
+    const preview = previewDrop(ids, target);
+    const cell = typeof preview === "number" ? preview : target.kind === "new" ? target.cell : undefined;
+    const start = cell === undefined ? element :
+      element.parentElement?.querySelector<HTMLElement>(`[data-rm-cell="${cell}"]`) ?? element;
+    highlights = [start];
+    if (cell !== undefined) {
+      let next = start.nextElementSibling;
+      const length = Math.min(ids.length, GRID_COLUMNS - cell % GRID_COLUMNS);
+      while (next instanceof HTMLElement && highlights.length < length) {
+        highlights.push(next);
+        next = next.nextElementSibling;
+      }
+    }
+    for (const highlight of highlights) {
+      highlight.classList.add("rm-drop-target");
+      highlight.classList.toggle("rm-drop-invalid", preview === false);
+    }
+    if (target.kind === "rack" && element.matches("[data-tile]")) {
+      const rect = element.getBoundingClientRect();
+      element.classList.add(x >= rect.left + rect.width / 2 ? "rm-drop-after" : "rm-drop-before");
+    }
   }
   function clear() {
     clearHighlights();
@@ -121,7 +146,10 @@ export function enableTileDragging(
   window.addEventListener(
     "pointermove",
     (event) => {
-      if (!pending || pending.id !== event.pointerId) return;
+      if (!pending || pending.id !== event.pointerId) {
+        if (event.pointerType === "mouse") showDrop(selection(), event.clientX, event.clientY, false);
+        return;
+      }
       if (
         !pending.ghost &&
         Math.hypot(event.clientX - pending.x, event.clientY - pending.y) < 6
@@ -162,29 +190,7 @@ export function enableTileDragging(
       }
       event.preventDefault();
       pending.ghost.style.translate = `${event.clientX + 9}px ${event.clientY + 9}px`;
-      const hit = targetAt(event.clientX, event.clientY);
-      clearHighlights();
-      if (!hit) return;
-      const { element, target } = hit;
-      highlights = [element];
-      if (target.kind === "new" && target.cell !== undefined) {
-        let cell = element.nextElementSibling;
-        const length = Math.min(pending.tiles.length, GRID_COLUMNS - target.cell % GRID_COLUMNS);
-        while (cell instanceof HTMLElement && highlights.length < length) {
-          highlights.push(cell);
-          cell = cell.nextElementSibling;
-        }
-      }
-      const invalid = !canDrop(pending.tiles, target);
-      for (const highlighted of highlights) {
-        highlighted.classList.add("rm-drop-target");
-        highlighted.classList.toggle("rm-drop-invalid", invalid);
-      }
-      if (target.kind === "rack" && element.matches("[data-tile]")) {
-        const rect = element.getBoundingClientRect();
-        const after = event.clientX >= rect.left + rect.width / 2;
-        element.classList.add(after ? "rm-drop-after" : "rm-drop-before");
-      }
+      showDrop(pending.tiles, event.clientX, event.clientY, true);
     },
     { passive: false },
   );
@@ -219,7 +225,7 @@ export function enableTileDragging(
 
 export function fitRummikub(stage: HTMLElement): () => void {
   const rack = stage.querySelector<HTMLElement>(".rm-rack")!;
-  const count = rack.querySelectorAll("[data-tile]").length;
+  const count = Number(rack.dataset.rmRackCount);
 
   function fitRack() {
     const style = getComputedStyle(rack);
@@ -236,6 +242,11 @@ export function fitRummikub(stage: HTMLElement): () => void {
       size = Math.max(size, Math.min(narrow ? 72 : 88, Math.floor(byWidth), Math.floor(byHeight)));
     }
     rack.style.setProperty("--rack-tile", `${size}px`);
+    const columns = Math.max(1, Math.floor((width + gap) / (size + gap)));
+    const rows = Math.ceil(count / columns);
+    const verticalInsets = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) +
+      parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    rack.style.minHeight = `${Math.ceil(rows * size * 1.24 + Math.max(0, rows - 1) * gap + verticalInsets)}px`;
   }
 
   fitRack();
